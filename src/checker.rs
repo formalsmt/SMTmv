@@ -39,17 +39,6 @@ fn make_dir() -> PathBuf {
 }
 
 fn run_isabelle(dir: &PathBuf) -> CheckResult {
-    let mut ths = vec![];
-    for entry in fs::read_dir(dir).unwrap().filter_map(|f| f.ok()) {
-        let path = entry.path();
-        let extension = path.extension().and_then(|f| f.to_str()).clone();
-        if extension == Some("thy") {
-            let fnm = entry.file_name().to_str().unwrap().to_string();
-            let fnm = fnm.strip_suffix(".thy").unwrap().to_string();
-            ths.push(fnm);
-        }
-    }
-
     let mut isablle_cmd = Command::new("isabelle");
 
     isablle_cmd
@@ -58,9 +47,7 @@ fn run_isabelle(dir: &PathBuf) -> CheckResult {
         .stdout(Stdio::piped())
         .current_dir(dir);
 
-    for th in ths {
-        isablle_cmd.arg("-T").arg(th);
-    }
+    isablle_cmd.arg("-T").arg("Validation");
 
     let child = isablle_cmd
         .spawn()
