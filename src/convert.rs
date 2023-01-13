@@ -110,7 +110,7 @@ impl Converter {
     fn convert_fun_defines(&self, defs: &[(FunctionDec, Term)]) -> String {
         defs.iter()
             .map(|(decl, v)| format!("{} = {}", decl.name, self.convert_term(v)))
-            .intersperse(" \\<and> ".to_string())
+            .intersperse(" \n\\<and> ".to_string())
             .collect()
     }
 
@@ -120,7 +120,7 @@ impl Converter {
         for (i, term) in assertions.iter().enumerate() {
             res += &self.convert_term(term);
             if i + 1 < n {
-                res += " \\<and> "
+                res += " \n\\<and> "
             }
         }
         res
@@ -150,28 +150,6 @@ impl Converter {
             Constant::Binary(_) => todo!(),
             Constant::String(s) => format!("(of_list ''{}'')", s),
         }
-    }
-
-    fn left_assoc(&self, identifier: &QualIdentifier) -> bool {
-        let op = self.identifier_name(identifier);
-        let spec = match self.spec.get_mapping(&op) {
-            Some(s) => s,
-            None => panic!("Unkown operation {}", &op),
-        }
-        .1;
-
-        spec.is_left_assoc()
-    }
-
-    fn right_assoc(&self, identifier: &QualIdentifier) -> bool {
-        let op = self.identifier_name(identifier);
-        let spec = match self.spec.get_mapping(&op) {
-            Some(s) => s,
-            None => panic!("Unkown operation {}", &op),
-        }
-        .1;
-
-        spec.is_right_assoc()
     }
 
     fn identifier_name(&self, identifier: &QualIdentifier) -> String {
@@ -228,7 +206,11 @@ impl Converter {
                 Some(n) => n,
                 None => panic!("Unsupported operation: {}", op),
             };
-            let mut s = format!("(({}) ", name);
+            let mut s = if args.len() <= 1 {
+                format!("({} ", name)
+            } else {
+                format!("(({}) ", name)
+            };
             for t in args {
                 s += " ";
                 s += &self.convert_term(t);

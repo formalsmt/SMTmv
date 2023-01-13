@@ -1,6 +1,7 @@
 use fs_extra::dir::CopyOptions;
 use std::env::temp_dir;
 use std::fs;
+use std::io::stderr;
 use std::os::unix::prelude::FileExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -48,14 +49,13 @@ fn run_isabelle(dir: &PathBuf) -> CheckResult {
         .current_dir(dir);
 
     isablle_cmd.arg("-T").arg("Validation");
-
     let child = isablle_cmd
         .spawn()
         .expect("Failed to start Isabelle process");
 
     let output = child.wait_with_output().expect("Failed to run process");
 
-    //let stderr = String::from_utf8(exit_code.stderr).expect("Failed to decode stderr");
+    let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
     let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
 
     if output.status.success() {
@@ -70,7 +70,7 @@ fn run_isabelle(dir: &PathBuf) -> CheckResult {
                 CheckResult::FailedUnknown
             }
         } else {
-            panic!("{}", stdout);
+            panic!("{}\n{}", stdout, stderr);
         }
     }
 }
