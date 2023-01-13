@@ -60,7 +60,17 @@ fn main() {
     let spec_path = th_path.join("spec.json");
     let converter = convert::Converter::from_spec_file(&spec_path);
 
-    let iformula = converter.convert_fm(BufReader::new(File::open(cli.smt).unwrap()));
+    let mut fm_str = String::new();
+    BufReader::new(File::open(cli.smt).unwrap())
+        .read_to_string(&mut fm_str)
+        .expect("Failed to read formula");
+
+    // Convert to smt 2.6
+    fm_str = fm_str
+        .replace("str.to.re", "str.to_re")
+        .replace("str.in.re", "str.in_re");
+
+    let iformula = converter.convert_fm(fm_str.as_bytes());
     info!("📝 Converted SMT formula to Isabelle");
 
     let imodel = converter.convert_model(model.as_bytes());
