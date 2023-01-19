@@ -20,14 +20,14 @@ struct Spec {
 impl Spec {
     fn is_left_assoc(&self) -> bool {
         match &self.assoc {
-            Some(a) => *a == String::from("left"),
+            Some(a) => a == "left",
             None => false,
         }
     }
 
     fn is_right_assoc(&self) -> bool {
         match &self.assoc {
-            Some(a) => *a == String::from("right"),
+            Some(a) => a == "right",
             None => false,
         }
     }
@@ -48,7 +48,7 @@ impl SpecDef {
                 return Some((th.clone(), spec.clone()));
             }
         }
-        return None;
+        None
     }
 }
 
@@ -99,6 +99,7 @@ impl Converter {
         self.convert_fun_defines(&defines)
     }
 
+    #[allow(unstable_name_collisions)]
     fn convert_fun_defines(&self, defs: &[(FunctionDec, Term)]) -> String {
         defs.iter()
             .map(|(decl, v)| format!("{} = {}", decl.name, self.convert_term(v)))
@@ -106,6 +107,7 @@ impl Converter {
             .collect()
     }
 
+    #[allow(unused_variables)]
     fn convert_term(&self, t: &Term) -> String {
         match t {
             Term::Constant(c) => self.convert_constant(c),
@@ -126,7 +128,7 @@ impl Converter {
         match c {
             Constant::Numeral(n) => format!("{}", n),
             Constant::Decimal(d) => format!("{}", d),
-            Constant::Hexadecimal(h) => todo!(),
+            Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => format!("(of_list ''{}'')", s),
         }
@@ -136,7 +138,7 @@ impl Converter {
         match identifier {
             QualIdentifier::Simple { identifier } | QualIdentifier::Sorted { identifier, .. } => {
                 match identifier {
-                    Identifier::Simple { symbol } => format!("{}", symbol.0),
+                    Identifier::Simple { symbol } => symbol.0.to_string(),
                     Identifier::Indexed { .. } => todo!(),
                 }
             }
@@ -166,13 +168,14 @@ impl Converter {
         }
     }
 
-    fn unroll_assoc_right(&self, identifier: &QualIdentifier, args: &Vec<Term>) -> Term {
+    #[allow(unused_variables)]
+    fn unroll_assoc_right(&self, identifier: &QualIdentifier, args: &[Term]) -> Term {
         unimplemented!()
     }
 
     fn convert_application(&self, identifier: &QualIdentifier, args: &Vec<Term>) -> String {
         let op = &self.identifier_name(identifier);
-        let spec = match self.spec.get_spec(&op) {
+        let spec = match self.spec.get_spec(op) {
             Some(m) => m.1,
             None => panic!("Unknown operation: {}", op),
         };

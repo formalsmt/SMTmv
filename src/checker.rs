@@ -1,7 +1,7 @@
 use crate::lemma;
 use fs_extra::dir::CopyOptions;
 use isabelle_client::commands::UseTheoryArgs;
-use isabelle_client::{AsyncResult, IsabelleClient, SessionBuildStartArgs, SessionStartResult};
+use isabelle_client::{AsyncResult, IsabelleClient};
 use log::error;
 use std::env::temp_dir;
 use std::os::unix::prelude::FileExt;
@@ -25,6 +25,7 @@ pub struct BatchVerifier {
 }
 
 impl BatchVerifier {
+    #[allow(unused)]
     pub fn new(theory_root: &str) -> Self {
         Self {
             theory_root: theory_root.to_string(),
@@ -55,18 +56,16 @@ impl BatchVerifier {
 
         if output.status.success() {
             Ok(CheckResult::OK)
-        } else {
-            if stdout.contains("Failed to finish proof") {
-                if stdout.contains("1. False") {
-                    // Heuristic
-                    Ok(CheckResult::FailedInvalid)
-                } else {
-                    Ok(CheckResult::FailedUnknown)
-                }
+        } else if stdout.contains("Failed to finish proof") {
+            if stdout.contains("1. False") {
+                // Heuristic
+                Ok(CheckResult::FailedInvalid)
             } else {
-                error!("{}", stdout);
-                Err(stderr)
+                Ok(CheckResult::FailedUnknown)
             }
+        } else {
+            error!("{}", stdout);
+            Err(stderr)
         }
     }
 }
@@ -168,7 +167,7 @@ impl ClientVerifier {
         options.depth = 1;
         options.overwrite = true;
 
-        if let Err(e) = fs_extra::dir::copy(&self.theory_root, &self.temp_dir.clone(), &options) {
+        if let Err(e) = fs_extra::dir::copy(&self.theory_root, self.temp_dir.clone(), &options) {
             panic!("{}", e);
         }
     }
@@ -176,14 +175,14 @@ impl ClientVerifier {
     fn load_theory(&mut self, name: &str) -> io::Result<()> {
         log::debug!("Loading theory {}", name);
         let session_id = self.session_id.clone();
-        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &vec![name]);
+        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &[name]);
         args.master_dir = Some(self.theory_root.clone());
 
         let res = async { self.client.use_theories(&args).await };
 
         let resp = self.runtime.block_on(res)?;
         match resp {
-            AsyncResult::Finished(r) => {
+            AsyncResult::Finished(_) => {
                 log::debug!("Loaded theory {}", name);
                 Ok(())
             }
@@ -196,16 +195,15 @@ impl ClientVerifier {
 impl ModelVerifier for ClientVerifier {
     fn check_model(&mut self, formula: &str, model: &str) -> CheckResult {
         // Create temporary folder
-        log::info!("Validating model");
         log::debug!(
             "Checking {} ==> {}",
-            model.replace("\n", ""),
-            formula.replace("\n", "")
+            model.replace('\n', ""),
+            formula.replace('\n', "")
         );
 
         let session_id = self.session_id.clone();
 
-        let th = lemma::lemma_simp(formula, model, "Validation", &vec!["QF_S".to_owned()]);
+        let th = lemma::lemma_simp(formula, model, "Validation", &["QF_S".to_owned()]);
         let dir = PathBuf::from_str(&self.temp_dir).unwrap();
         match fs::File::create(dir.join("Validation.thy")) {
             Ok(th_file) => {
@@ -219,7 +217,7 @@ impl ModelVerifier for ClientVerifier {
         let path = dir.join("Validation");
         let path = path.to_str().unwrap();
 
-        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &vec![path]);
+        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &[path]);
         args.master_dir = Some(self.theory_root.clone());
         args.nodes_status_delay = Some(-1.0);
         args.check_limit = Some(1);

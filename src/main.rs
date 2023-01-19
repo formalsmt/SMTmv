@@ -5,7 +5,7 @@ mod lemma;
 use crate::checker::ModelVerifier;
 use clap::{command, ArgGroup, Parser};
 use env_logger::Builder;
-use log::{info, LevelFilter};
+use log::info;
 use std::fs::{self, File};
 use std::io::Write;
 use std::io::{self, BufReader, Read};
@@ -35,7 +35,9 @@ fn main() {
     let mut model = if cli.stdin {
         let mut stdin = io::stdin();
         let mut lines = String::new();
-        stdin.read_to_string(&mut lines);
+        stdin
+            .read_to_string(&mut lines)
+            .expect("Failed to read model from stdin");
         lines
     } else if let Some(m) = cli.model {
         fs::read_to_string(m).unwrap()
@@ -48,9 +50,9 @@ fn main() {
             .strip_prefix("sat")
             .unwrap()
             .trim()
-            .strip_prefix("(")
+            .strip_prefix('(')
             .unwrap()
-            .strip_suffix(")")
+            .strip_suffix(')')
             .unwrap()
             .trim()
             .to_string()
@@ -82,7 +84,7 @@ fn main() {
     info!("💡 Checking model with Isabelle");
     let mut checker = checker::ClientVerifier::start_server(&cli.throot).unwrap();
     for (i, fm) in iformulas.iter().enumerate() {
-        match checker.check_model(&fm, &imodel) {
+        match checker.check_model(fm, &imodel) {
             checker::CheckResult::OK => {
                 info!("({}/{}) is valid", i, n);
             }

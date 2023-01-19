@@ -1,7 +1,6 @@
 use itertools::Itertools;
 
-pub struct Generator {}
-
+#[allow(unstable_name_collisions)]
 pub fn lemma_simp(formula: &str, model: &str, th_name: &str, imports: &[String]) -> String {
     let tmpl = "
 theory ?th_name      
@@ -29,6 +28,7 @@ end
         .to_string()
 }
 
+#[allow(unreachable_code, unused_variables)]
 pub fn lemma_auto(formula: &str, model: &str, th_name: &str) -> String {
     unimplemented!();
     let tmpl = "
