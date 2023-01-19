@@ -1,8 +1,10 @@
 mod checker;
 mod convert;
+mod lemma;
 
+use crate::checker::ModelVerifier;
 use clap::{command, ArgGroup, Parser};
-use env_logger::{builder, Builder};
+use env_logger::Builder;
 use log::{info, LevelFilter};
 use std::fs::{self, File};
 use std::io::Write;
@@ -70,34 +72,38 @@ fn main() {
         .replace("str.to.re", "str.to_re")
         .replace("str.in.re", "str.in_re");
 
-    let iformula = converter.convert_fm(fm_str.as_bytes());
+    let iformulas = converter.convert_fm(fm_str.as_bytes());
+    let n = iformulas.len();
     info!("📝 Converted SMT formula to Isabelle");
 
     let imodel = converter.convert_model(model.as_bytes());
     info!("📝 Converted SMT model to Isabelle");
 
     info!("💡 Checking model with Isabelle");
-    let res = checker::check_model(&iformula, &imodel, &cli.throot);
-    match res {
-        checker::CheckResult::OK => {
-            info!("✅ Model is valid");
-            println!("sat")
-        }
-        checker::CheckResult::FailedUnknown => {
-            info!("⚠️ Unknown result");
-            println!("unknown")
-        }
-        checker::CheckResult::FailedInvalid => {
-            info!("🚨 Model is not valid");
-            println!("unsat")
+    let mut checker = checker::ClientVerifier::start_server(&cli.throot).unwrap();
+    for (i, fm) in iformulas.iter().enumerate() {
+        match checker.check_model(&fm, &imodel) {
+            checker::CheckResult::OK => {
+                info!("({}/{}) is valid", i, n);
+            }
+            checker::CheckResult::FailedUnknown => {
+                info!("⚠️ ({}/{}) Unknown result", i, n);
+                println!("unknown");
+                exit(0)
+            }
+            checker::CheckResult::FailedInvalid => {
+                info!("🚨 ({}/{}) Model is not valid", i, n);
+                println!("unsat");
+                exit(0);
+            }
         }
     }
+    println!("sat")
 }
 
 fn init_logger() {
     let mut builder = Builder::from_default_env();
     builder
         .format(|buf, record| writeln!(buf, "[{}] {}", record.level(), record.args()))
-        .filter(None, LevelFilter::Info)
         .init();
 }

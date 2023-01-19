@@ -42,21 +42,13 @@ struct SpecDef {
 }
 
 impl SpecDef {
-    fn map_op(&self, op: &str) -> Option<String> {
-        self.get_mapping(op)?.1.mapsto.clone()
-    }
-
-    fn get_mapping(&self, op: &str) -> Option<(String, Spec)> {
-        for (th, mappings) in self.specs.iter() {
-            if let Some(spec) = mappings.get(op) {
+    fn get_spec(&self, op: &str) -> Option<(String, Spec)> {
+        for (th, specs) in self.specs.iter() {
+            if let Some(spec) = specs.get(op) {
                 return Some((th.clone(), spec.clone()));
             }
         }
         return None;
-    }
-
-    fn get_mapping_th(&self, th: &str, op: &str) -> Option<Spec> {
-        self.specs.get(th)?.get(op).cloned()
     }
 }
 
@@ -81,17 +73,17 @@ impl Converter {
         Converter::new(spec)
     }
 
-    pub fn convert_fm(&self, input: impl std::io::BufRead) -> String {
+    pub fn convert_fm(&self, input: impl std::io::BufRead) -> Vec<String> {
         let stream = CommandStream::new(input, concrete::SyntaxBuilder, None);
         let commands = stream.collect::<Result<Vec<_>, _>>().unwrap();
-        let asserts: Vec<Term> = commands
+        commands
             .iter()
             .filter_map(|c| match c {
                 Command::Assert { term } => Some(term.clone()),
                 _ => None,
             })
-            .collect();
-        self.convert_assertions(&asserts)
+            .map(|t| self.convert_term(&t))
+            .collect()
     }
 
     pub fn convert_model(self, input: impl std::io::BufRead) -> String {
@@ -112,18 +104,6 @@ impl Converter {
             .map(|(decl, v)| format!("{} = {}", decl.name, self.convert_term(v)))
             .intersperse(" \n\\<and> ".to_string())
             .collect()
-    }
-
-    fn convert_assertions(&self, assertions: &[Term]) -> String {
-        let mut res = "".to_string();
-        let n = assertions.len();
-        for (i, term) in assertions.iter().enumerate() {
-            res += &self.convert_term(term);
-            if i + 1 < n {
-                res += " \n\\<and> "
-            }
-        }
-        res
     }
 
     fn convert_term(&self, t: &Term) -> String {
@@ -192,7 +172,7 @@ impl Converter {
 
     fn convert_application(&self, identifier: &QualIdentifier, args: &Vec<Term>) -> String {
         let op = &self.identifier_name(identifier);
-        let spec = match self.spec.get_mapping(&op) {
+        let spec = match self.spec.get_spec(&op) {
             Some(m) => m.1,
             None => panic!("Unknown operation: {}", op),
         };
