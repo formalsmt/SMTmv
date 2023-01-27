@@ -45,6 +45,7 @@ fn main() {
         panic!("No model")
     };
     model = model.trim().to_string();
+
     if model.starts_with("sat\n(") {
         model = model
             .strip_prefix("sat")
@@ -60,6 +61,8 @@ fn main() {
         exit(0);
     }
 
+    log::debug!("Got model {}", model);
+
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
     let spec_path = th_path.join("spec.json");
     let converter = convert::Converter::from_spec_file(&spec_path);
@@ -74,33 +77,46 @@ fn main() {
         .replace("str.to.re", "str.to_re")
         .replace("str.in.re", "str.in_re");
 
-    let iformulas = converter.convert_fm(fm_str.as_bytes());
-    let n = iformulas.len();
+    let iformulas = match converter.convert(fm_str.as_bytes()) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("unknown: {}", e);
+            exit(1);
+        }
+    };
+
     info!("📝 Converted SMT formula to Isabelle");
 
-    let imodel = converter.convert_model(model.as_bytes());
+    let imodel = match converter.convert(model.as_bytes()) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("unknown: {}", e);
+            exit(1);
+        }
+    };
     info!("📝 Converted SMT model to Isabelle");
 
+    let mut lemma = lemma::Lemma::new("validation");
+    lemma.add_conclusions(&iformulas);
+    lemma.add_premises(&imodel);
+
     info!("💡 Checking model with Isabelle");
-    let mut checker = checker::ClientVerifier::start_server(&cli.throot).unwrap();
-    for (i, fm) in iformulas.iter().enumerate() {
-        match checker.check_model(fm, &imodel) {
-            checker::CheckResult::OK => {
-                info!("({}/{}) is valid", i, n);
-            }
-            checker::CheckResult::FailedUnknown => {
-                info!("⚠️ ({}/{}) Unknown result", i, n);
-                println!("unknown");
-                exit(0)
-            }
-            checker::CheckResult::FailedInvalid => {
-                info!("🚨 ({}/{}) Model is not valid", i, n);
-                println!("unsat");
-                exit(0);
-            }
+    //let mut checker = checker::ClientVerifier::start_server(&cli.throot).unwrap();
+    let mut checker = checker::BatchVerifier::new(&cli.throot);
+
+    match checker.check_model(&lemma) {
+        checker::CheckResult::OK => {
+            println!("sat")
+        }
+        checker::CheckResult::FailedUnknown => {
+            println!("unknown");
+            exit(0)
+        }
+        checker::CheckResult::FailedInvalid => {
+            println!("unsat");
+            exit(0);
         }
     }
-    println!("sat")
 }
 
 fn init_logger() {

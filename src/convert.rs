@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use std::{collections::HashMap, fs, path::PathBuf};
 
-use itertools::Itertools;
 use smt2parser::{
     concrete::{Command, Constant},
     concrete::{QualIdentifier, Term},
@@ -68,50 +67,38 @@ impl Converter {
     pub fn from_spec_file(spec_file: &PathBuf) -> Self {
         let spec = match fs::read_to_string(spec_file) {
             Ok(b) => b,
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("Error loading {:?}: {}", spec_file.as_os_str(), e),
         };
         Converter::new(spec)
     }
 
-    pub fn convert_fm(&self, input: impl std::io::BufRead) -> Vec<String> {
+    pub fn convert(&self, input: impl std::io::BufRead) -> Result<Vec<String>, String> {
         let stream = CommandStream::new(input, concrete::SyntaxBuilder, None);
         let commands = stream.collect::<Result<Vec<_>, _>>().unwrap();
-        commands
-            .iter()
-            .filter_map(|c| match c {
-                Command::Assert { term } => Some(term.clone()),
-                _ => None,
-            })
-            .map(|t| self.convert_term(&t))
-            .collect()
-    }
 
-    pub fn convert_model(self, input: impl std::io::BufRead) -> String {
-        let stream = CommandStream::new(input, concrete::SyntaxBuilder, None);
-        let commands = stream.collect::<Result<Vec<_>, _>>().unwrap();
-        let defines: Vec<(FunctionDec, Term)> = commands
-            .iter()
-            .filter_map(|c| match c {
-                Command::DefineFun { sig, term } => Some((sig.clone(), term.clone())),
+        let mut converted = vec![];
+        for c in &commands {
+            if let Some(conv) = match c {
+                Command::Assert { term } => Some(self.convert_term(term)?),
+                Command::DefineFun { sig, term } => Some(self.convert_fun_defines(sig, term)?),
                 _ => None,
-            })
-            .collect();
-        self.convert_fun_defines(&defines)
+            } {
+                converted.push(conv);
+            }
+        }
+        Ok(converted)
     }
 
     #[allow(unstable_name_collisions)]
-    fn convert_fun_defines(&self, defs: &[(FunctionDec, Term)]) -> String {
-        defs.iter()
-            .map(|(decl, v)| format!("{} = {}", decl.name, self.convert_term(v)))
-            .intersperse(" \n\\<and> ".to_string())
-            .collect()
+    fn convert_fun_defines(&self, decl: &FunctionDec, term: &Term) -> Result<String, String> {
+        Ok(format!("{} = {}", decl.name, self.convert_term(term)?))
     }
 
     #[allow(unused_variables)]
-    fn convert_term(&self, t: &Term) -> String {
+    fn convert_term(&self, t: &Term) -> Result<String, String> {
         match t {
             Term::Constant(c) => self.convert_constant(c),
-            Term::QualIdentifier(i) => self.identifier_name(i),
+            Term::QualIdentifier(i) => self.convert_identifier(i),
             Term::Application {
                 qual_identifier,
                 arguments,
@@ -124,13 +111,30 @@ impl Converter {
         }
     }
 
-    fn convert_constant(&self, c: &Constant) -> String {
+    fn convert_constant(&self, c: &Constant) -> Result<String, String> {
         match c {
-            Constant::Numeral(n) => format!("{}", n),
-            Constant::Decimal(d) => format!("{}", d),
+            Constant::Numeral(n) => Ok(format!("{}", n)),
+            Constant::Decimal(d) => Ok(format!("{}", d)),
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
-            Constant::String(s) => format!("(of_list ''{}'')", s),
+            Constant::String(s) => {
+                if s.contains("\\x") || s.contains("\\u") {
+                    Err(format!("Unicode strings are unsupported: {}", s))
+                } else {
+                    Ok(format!("(of_list ''{}'')", s))
+                }
+            }
+        }
+    }
+
+    fn convert_identifier(&self, identifier: &QualIdentifier) -> Result<String, String> {
+        let op = &self.identifier_name(identifier);
+        match self.spec.get_spec(op) {
+            Some(m) => match m.1.mapsto {
+                Some(m) => Ok(m),
+                None => Err(format!("Unsupported operation: {}", op)),
+            },
+            None => return Ok(op.clone()), // Variables
         }
     }
 
@@ -152,13 +156,11 @@ impl Converter {
                 arguments: vec![args[0].clone(), args[1].clone()],
             };
             for arg in args.iter().skip(2) {
-                println!("{}", arg);
                 term = Term::Application {
                     qual_identifier: identifier.clone(),
                     arguments: vec![term, arg.clone()],
                 };
             }
-            println!("in: {}\nout: {}", args.len(), term);
             term
         } else {
             Term::Application {
@@ -173,11 +175,15 @@ impl Converter {
         unimplemented!()
     }
 
-    fn convert_application(&self, identifier: &QualIdentifier, args: &Vec<Term>) -> String {
+    fn convert_application(
+        &self,
+        identifier: &QualIdentifier,
+        args: &Vec<Term>,
+    ) -> Result<String, String> {
         let op = &self.identifier_name(identifier);
         let spec = match self.spec.get_spec(op) {
             Some(m) => m.1,
-            None => panic!("Unknown operation: {}", op),
+            None => return Err(format!("Unknown operation: {}", op)),
         };
 
         if spec.is_left_assoc() && args.len() > 2 {
@@ -187,7 +193,7 @@ impl Converter {
         } else {
             let name = match spec.mapsto {
                 Some(n) => n,
-                None => panic!("Unsupported operation: {}", op),
+                None => return Err(format!("Unsupported operation: {}", op)),
             };
             let mut s = if args.len() <= 1 {
                 format!("({} ", name)
@@ -196,10 +202,10 @@ impl Converter {
             };
             for t in args {
                 s += " ";
-                s += &self.convert_term(t);
+                s += &self.convert_term(t)?;
             }
             s += ")";
-            s
+            Ok(s)
         }
     }
 }

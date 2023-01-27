@@ -1,12 +1,11 @@
-use crate::lemma;
+use crate::lemma::{Lemma, Theory};
 use fs_extra::dir::CopyOptions;
-use isabelle_client::commands::UseTheoryArgs;
-use isabelle_client::{AsyncResult, IsabelleClient};
-use log::error;
+use isabelle::client::{AsyncResult, IsabelleClient};
+use isabelle::commands::{PurgeTheoryArgs, UseTheoryArgs};
+use isabelle::process;
 use std::env::temp_dir;
 use std::os::unix::prelude::FileExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::{fs, io};
 
@@ -17,7 +16,7 @@ pub enum CheckResult {
 }
 
 pub trait ModelVerifier {
-    fn check_model(&mut self, formula: &str, model: &str) -> CheckResult;
+    fn check_model(&mut self, lemma: &Lemma) -> CheckResult;
 }
 
 pub struct BatchVerifier {
@@ -33,23 +32,24 @@ impl BatchVerifier {
     }
 
     fn run_isabelle(&self, dir: &PathBuf, theory_root: &str) -> Result<CheckResult, String> {
-        let mut isablle_cmd = Command::new("isabelle");
+        let mut options = process::OptionsBuilder::new();
+        options
+            .build_pide_reports(false)
+            .pide_reports(false)
+            .process_output_limit(1)
+            .process_output_tail(1)
+            .quick_and_dirty(true);
 
-        isablle_cmd
-            .arg("process")
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
-            .current_dir(dir)
-            .arg("-T")
-            .arg("Validation")
-            .arg("-d")
-            .arg(theory_root);
-
-        let child = isablle_cmd
-            .spawn()
-            .expect("Failed to start Isabelle process");
-
-        let output = child.wait_with_output().expect("Failed to run process");
+        let args = process::ProcessArgs {
+            theories: vec!["Validation".to_owned()],
+            session_dirs: vec![theory_root.to_owned()],
+            logic: None,
+            options: options.into(),
+        };
+        let output = match process::batch_process(&args, Some(dir)) {
+            Ok(o) => o,
+            Err(e) => return Err(e.to_string()),
+        };
 
         let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
         let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
@@ -57,6 +57,7 @@ impl BatchVerifier {
         if output.status.success() {
             Ok(CheckResult::OK)
         } else if stdout.contains("Failed to finish proof") {
+            log::debug!("{}", stdout);
             if stdout.contains("1. False") {
                 // Heuristic
                 Ok(CheckResult::FailedInvalid)
@@ -64,14 +65,15 @@ impl BatchVerifier {
                 Ok(CheckResult::FailedUnknown)
             }
         } else {
-            error!("{}", stdout);
+            log::warn!("{}", stdout);
+            log::warn!("{}", stderr);
             Err(stderr)
         }
     }
 }
 
 impl ModelVerifier for BatchVerifier {
-    fn check_model(&mut self, formula: &str, model: &str) -> CheckResult {
+    fn check_model(&mut self, lemma: &Lemma) -> CheckResult {
         // Create temporary folder
         let dir = make_dir();
 
@@ -81,12 +83,19 @@ impl ModelVerifier for BatchVerifier {
         options.depth = 1;
         options.overwrite = true;
 
-        //if let Err(e) = fs_extra::dir::copy(&theory_root, &dir, &options) {
-        //    panic!("{}", e);
-        //}
+        if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
+            panic!("{}", e);
+        }
 
         // Create new theory file with lemma
-        let th = lemma::lemma_auto(formula, model, "Validation");
+        let mut theory = Theory::new("Validation", false);
+        theory.add_theory_import("QF_S");
+        theory.add_lemma(lemma.clone());
+
+        let th = theory.to_isabelle();
+
+        log::debug!("{}", th);
+
         match fs::File::create(dir.join("Validation.thy")) {
             Ok(th_file) => {
                 if let Err(e) = th_file.write_all_at(th.as_bytes(), 0) {
@@ -100,7 +109,7 @@ impl ModelVerifier for BatchVerifier {
         match self.run_isabelle(&dir, &self.theory_root) {
             Ok(r) => r,
             Err(e) => {
-                panic!("Failed to check model for formula {}: {}", formula, e);
+                panic!("Failed to check lemma {:?}", lemma);
             }
         }
     }
@@ -116,7 +125,7 @@ pub struct ClientVerifier {
 
 impl ClientVerifier {
     pub fn start_server(theory_root: &str) -> io::Result<Self> {
-        let (port, pass) = isabelle_client::server::run_server(Some("vmv_server"))?;
+        let (port, pass) = isabelle::server::run_server(Some("vmv_server"))?;
         log::debug!("Isabelle server is running on port {}", port);
         let client = IsabelleClient::connect(None, port, &pass);
         let runtime = tokio::runtime::Runtime::new()?;
@@ -138,7 +147,7 @@ impl ClientVerifier {
 
     fn start_session(&mut self) -> io::Result<()> {
         log::debug!("Staring HOL session");
-        let mut args = isabelle_client::commands::SessionBuildStartArgs::session("HOL");
+        let mut args = isabelle::commands::SessionBuildStartArgs::session("HOL");
         args.options = Some(vec![
             "system_log=false".to_owned(),
             "process_output_limit=1".to_owned(),
@@ -193,21 +202,19 @@ impl ClientVerifier {
 }
 
 impl ModelVerifier for ClientVerifier {
-    fn check_model(&mut self, formula: &str, model: &str) -> CheckResult {
+    fn check_model(&mut self, lemma: &Lemma) -> CheckResult {
         // Create temporary folder
-        log::debug!(
-            "Checking {} ==> {}",
-            model.replace('\n', ""),
-            formula.replace('\n', "")
-        );
 
         let session_id = self.session_id.clone();
 
-        let th = lemma::lemma_simp(formula, model, "Validation", &["QF_S".to_owned()]);
+        let mut theory = Theory::new("Validation", false);
+        theory.add_lemma(lemma.clone());
+        theory.add_theory_import("QF_S");
+
         let dir = PathBuf::from_str(&self.temp_dir).unwrap();
         match fs::File::create(dir.join("Validation.thy")) {
             Ok(th_file) => {
-                if let Err(e) = th_file.write_all_at(th.as_bytes(), 0) {
+                if let Err(e) = th_file.write_all_at(&theory.to_isabelle().as_bytes(), 0) {
                     panic!("{}", e)
                 }
             }
@@ -219,11 +226,13 @@ impl ModelVerifier for ClientVerifier {
 
         let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &[path]);
         args.master_dir = Some(self.theory_root.clone());
-        args.nodes_status_delay = Some(-1.0);
+        //args.nodes_status_delay = Some(-1.0);
         args.check_limit = Some(1);
         args.unicode_symbols = Some(true);
 
-        match self
+        log::debug!("Checking\n{}", theory.to_isabelle());
+
+        let result = match self
             .runtime
             .block_on(self.client.use_theories(&args))
             .unwrap()
@@ -233,18 +242,31 @@ impl ModelVerifier for ClientVerifier {
                 CheckResult::FailedUnknown
             }
             AsyncResult::Failed(f) => {
-                log::info!("Proving theory failed: {:?}", f.message);
+                // TODO: Check reason!
+                log::warn!("Proving theory failed: {:?}", f.message);
                 CheckResult::FailedUnknown
             }
             AsyncResult::Finished(f) => {
                 if f.ok {
                     CheckResult::OK
                 } else {
-                    log::info!("Proving theory unsuccessful: {:?}", f.errors);
+                    log::warn!("Proving theory unsuccessful: {:?}", f.errors);
+                    log::warn!("{}", theory.to_isabelle());
                     CheckResult::FailedUnknown
                 }
             }
+        };
+
+        // Purge theory to release resources
+        let mut args: PurgeTheoryArgs = PurgeTheoryArgs::for_session(&session_id, &[path]);
+        args.master_dir = Some(self.theory_root.clone());
+
+        match self.runtime.block_on(self.client.purge_theories(args)) {
+            Ok(ok) => (),
+            Err(e) => panic!("Failed to purge theory, aborting: {:?}", e),
         }
+
+        result
     }
 }
 
