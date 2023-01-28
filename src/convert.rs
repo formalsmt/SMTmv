@@ -113,7 +113,7 @@ impl Converter {
 
     fn convert_constant(&self, c: &Constant) -> Result<String, String> {
         match c {
-            Constant::Numeral(n) => Ok(format!("{}", n)),
+            Constant::Numeral(n) => Ok(format!("({}::nat)", n)),
             Constant::Decimal(d) => Ok(format!("{}", d)),
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
