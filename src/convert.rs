@@ -112,17 +112,20 @@ impl Converter {
     }
 
     fn convert_constant(&self, c: &Constant) -> Result<String, String> {
+        let unsupported_chars = vec!['\\', '\'', '\"'];
         match c {
-            Constant::Numeral(n) => Ok(format!("({}::nat)", n)),
+            Constant::Numeral(n) => Ok(format!("({}::int)", n)),
             Constant::Decimal(d) => Ok(format!("{}", d)),
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => {
-                if s.contains("\\x") || s.contains("\\u") {
-                    Err(format!("Unicode strings are unsupported: {}", s))
-                } else {
-                    Ok(format!("(of_list ''{}'')", s))
+                for bad in unsupported_chars {
+                    if s.contains(bad) {
+                        return Err(format!("Contains unsupported char {}: {}", bad, s));
+                    }
                 }
+
+                Ok(format!("''{}''", s))
             }
         }
     }
