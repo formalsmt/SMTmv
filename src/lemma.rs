@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use itertools::Itertools;
 
 #[derive(Default, Clone, Debug)]
@@ -5,12 +7,19 @@ pub struct Lemma {
     name: String,
     premises: Vec<String>,
     conclusions: Vec<String>,
+    simps: HashSet<String>,
 }
 
 impl Lemma {
     pub fn new(name: &str) -> Self {
+        // Here 'assms' uses the premises for substitutions and 'eval_nat_numeral' is required to implicitly convert natural numerals to (Suc (Suc ... 0))
         Self {
             name: name.to_owned(),
+            simps: HashSet::from_iter(
+                vec!["assms", "eval_nat_numeral"]
+                    .into_iter()
+                    .map(str::to_string),
+            ),
             ..Default::default()
         }
     }
@@ -21,24 +30,35 @@ impl Lemma {
     }
 
     pub fn add_premises(&mut self, premises: &[String]) -> &mut Self {
-        self.premises.extend(premises.iter().cloned());
+        for p in premises {
+            self.add_premise(p);
+        }
         self
     }
 
     pub fn add_conclusion(&mut self, conclusion: &str) -> &mut Self {
+        if conclusion.contains("str_substr") {
+            self.simps.insert("fac_def".to_owned());
+        }
+        if conclusion.contains("str_prefixof") | conclusion.contains("str_suffixof") {
+            self.simps.insert("is_prefix_def".to_owned());
+            self.simps.insert("is_suffix_def".to_owned());
+        }
         self.conclusions.push(conclusion.to_owned());
         self
     }
 
     pub fn add_conclusions(&mut self, conclusions: &[String]) -> &mut Self {
-        self.conclusions.extend(conclusions.iter().cloned());
+        for c in conclusions {
+            self.add_conclusion(c);
+        }
         self
     }
 
     pub fn to_isabelle(self) -> String {
         let template = "
 lemma ?name: assumes ?model shows \"?formula\"
-    apply(simp add: assms)
+    apply(auto simp add: ?simps)
     done
 ";
 
@@ -56,10 +76,18 @@ lemma ?name: assumes ?model shows \"?formula\"
             .intersperse(" \\<and> ".to_string())
             .collect();
 
+        let simps: String = self
+            .simps
+            .iter()
+            .cloned()
+            .intersperse(" ".to_string())
+            .collect();
+
         template
             .replace("?name", &self.name)
             .replace("?model", &premises)
             .replace("?formula", &conclusion)
+            .replace("?simps", &simps)
     }
 
     fn split_conclusion(self) -> Vec<Lemma> {
