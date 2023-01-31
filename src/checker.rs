@@ -1,8 +1,8 @@
 use crate::lemma::{Lemma, Theory};
 use fs_extra::dir::CopyOptions;
-use isabelle::client::{AsyncResult, IsabelleClient};
-use isabelle::commands::{PurgeTheoryArgs, UseTheoryArgs};
-use isabelle::process;
+use isabelle_client::client::commands::{PurgeTheoryArgs, UseTheoriesArgs};
+use isabelle_client::client::{AsyncResult, IsabelleClient};
+use isabelle_client::process;
 use std::env::temp_dir;
 use std::os::unix::prelude::FileExt;
 use std::path::PathBuf;
@@ -38,6 +38,7 @@ impl BatchVerifier {
             .pide_reports(false)
             .process_output_limit(1)
             .process_output_tail(1)
+            .record_proofs(0)
             .quick_and_dirty(true);
 
         let args = process::ProcessArgs {
@@ -46,12 +47,17 @@ impl BatchVerifier {
             logic: None,
             options: options.into(),
         };
-        let output = match process::batch_process(&args, Some(dir)) {
+
+        let output = match tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(process::batch_process(&args, Some(dir)))
+        {
             Ok(o) => o,
             Err(e) => return Err(e.to_string()),
         };
 
-        let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
+        // Isabelle does not seem to write to stderr
+        //let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
         let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
 
         if output.status.success() {
@@ -65,9 +71,7 @@ impl BatchVerifier {
                 Ok(CheckResult::FailedUnknown)
             }
         } else {
-            log::warn!("{}", stdout);
-            log::warn!("{}", stderr);
-            Err(stderr)
+            Err(format!("Failed to check proof for {}", stdout))
         }
     }
 }
@@ -107,9 +111,18 @@ impl ModelVerifier for BatchVerifier {
 
         // Call isabelle
         match self.run_isabelle(&dir, &self.theory_root) {
-            Ok(r) => r,
+            Ok(CheckResult::OK) => CheckResult::OK,
+            Ok(CheckResult::FailedInvalid) => {
+                log::warn!("{}", th.as_str());
+                CheckResult::FailedInvalid
+            }
+            Ok(CheckResult::FailedUnknown) => {
+                log::warn!("{}", th.as_str());
+                CheckResult::FailedInvalid
+            }
             Err(e) => {
-                panic!("Failed to check lemma {:?}", lemma);
+                log::error!("{}", e);
+                panic!("Failed to check lemma:\n{}", th.as_str());
             }
         }
     }
@@ -125,7 +138,7 @@ pub struct ClientVerifier {
 
 impl ClientVerifier {
     pub fn start_server(theory_root: &str) -> io::Result<Self> {
-        let (port, pass) = isabelle::server::run_server(Some("vmv_server"))?;
+        let (port, pass) = isabelle_client::server::run_server(Some("vmv_server"))?;
         log::debug!("Isabelle server is running on port {}", port);
         let client = IsabelleClient::connect(None, port, &pass);
         let runtime = tokio::runtime::Runtime::new()?;
@@ -147,7 +160,7 @@ impl ClientVerifier {
 
     fn start_session(&mut self) -> io::Result<()> {
         log::debug!("Staring HOL session");
-        let mut args = isabelle::commands::SessionBuildStartArgs::session("HOL");
+        let mut args = isabelle_client::client::commands::SessionBuildArgs::session("HOL");
         args.options = Some(vec![
             "system_log=false".to_owned(),
             "process_output_limit=1".to_owned(),
@@ -184,7 +197,7 @@ impl ClientVerifier {
     fn load_theory(&mut self, name: &str) -> io::Result<()> {
         log::debug!("Loading theory {}", name);
         let session_id = self.session_id.clone();
-        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &[name]);
+        let mut args: UseTheoriesArgs = UseTheoriesArgs::for_session(&session_id, &[name]);
         args.master_dir = Some(self.theory_root.clone());
 
         let res = async { self.client.use_theories(&args).await };
@@ -224,7 +237,7 @@ impl ModelVerifier for ClientVerifier {
         let path = dir.join("Validation");
         let path = path.to_str().unwrap();
 
-        let mut args: UseTheoryArgs = UseTheoryArgs::for_session(&session_id, &[path]);
+        let mut args = UseTheoriesArgs::for_session(&session_id, &[path]);
         args.master_dir = Some(self.theory_root.clone());
         //args.nodes_status_delay = Some(-1.0);
         args.check_limit = Some(1);
