@@ -1,6 +1,6 @@
 use crate::lemma::{Lemma, Theory};
 use fs_extra::dir::CopyOptions;
-use isabelle_client::client::commands::{PurgeTheoryArgs, UseTheoriesArgs};
+use isabelle_client::client::args::{PurgeTheoryArgs, UseTheoriesArgs};
 use isabelle_client::client::{AsyncResult, IsabelleClient};
 use isabelle_client::process;
 use std::env::temp_dir;
@@ -44,10 +44,11 @@ impl BatchVerifier {
         let args = process::ProcessArgs {
             theories: vec!["Validation".to_owned()],
             session_dirs: vec![theory_root.to_owned()],
-            logic: None,
+            logic: Some("smt".to_string()),
             options: options.into(),
         };
 
+        log::debug!("Temp dir: {:?}", dir);
         let output = match tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(process::batch_process(&args, Some(dir)))
@@ -59,7 +60,7 @@ impl BatchVerifier {
         // Isabelle does not seem to write to stderr
         //let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
         let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
-
+        log::debug!("Stdout: {}", stdout);
         if output.status.success() {
             Ok(CheckResult::OK)
         } else if stdout.contains("Failed to finish proof") {
@@ -81,19 +82,23 @@ impl ModelVerifier for BatchVerifier {
         // Create temporary folder
         let dir = make_dir();
 
+        // Remove old files
+        //fs::remove_dir_all(&dir).unwrap();
+
         // Copy Isabelle theory files
         let mut options = CopyOptions::new();
+        options.depth = 0;
         options.content_only = true;
-        options.depth = 1;
-        options.overwrite = true;
+        options.skip_exist = true;
 
-        if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
-            panic!("{}", e);
-        }
+        //if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
+        //   panic!("{}", e);
+        //}
 
         // Create new theory file with lemma
         let mut theory = Theory::new("Validation", false);
-        theory.add_theory_import("QF_S");
+        theory.add_theory_import("smt.Strings");
+        theory.add_theory_import("smt.Core");
         theory.add_lemma(lemma.clone());
 
         let th = theory.to_isabelle();
@@ -118,7 +123,7 @@ impl ModelVerifier for BatchVerifier {
             }
             Ok(CheckResult::FailedUnknown) => {
                 log::warn!("{}", th.as_str());
-                CheckResult::FailedInvalid
+                CheckResult::FailedUnknown
             }
             Err(e) => {
                 log::error!("{}", e);
@@ -138,9 +143,9 @@ pub struct ClientVerifier {
 
 impl ClientVerifier {
     pub fn start_server(theory_root: &str) -> io::Result<Self> {
-        let (port, pass) = isabelle_client::server::run_server(Some("vmv_server"))?;
-        log::debug!("Isabelle server is running on port {}", port);
-        let client = IsabelleClient::connect(None, port, &pass);
+        let mut server = isabelle_client::server::run_server(Some("vmv_server"))?;
+        log::debug!("Isabelle server is running on port {}", server.port());
+        let client = IsabelleClient::connect(None, server.port(), server.password());
         let runtime = tokio::runtime::Runtime::new()?;
 
         let mut v = Self {
@@ -152,15 +157,16 @@ impl ClientVerifier {
         };
 
         v.start_session()?;
-        v.copy_files();
-        v.load_theory("QF_S")?;
+        //v.load_theory("smt")?;
 
         Ok(v)
     }
 
     fn start_session(&mut self) -> io::Result<()> {
         log::debug!("Staring HOL session");
-        let mut args = isabelle_client::client::commands::SessionBuildArgs::session("HOL");
+        let mut args = isabelle_client::client::args::SessionBuildArgs::session("HOL");
+        args.dirs = Some(vec![self.theory_root.clone()]);
+        args.include_sessions = vec![String::from("smt")];
         args.options = Some(vec![
             "system_log=false".to_owned(),
             "process_output_limit=1".to_owned(),
@@ -169,6 +175,7 @@ impl ClientVerifier {
             "build_pide_reports=false".to_owned(),
             "headless_check_limit=1".to_owned(),
         ]);
+
         let res = async { self.client.session_start(&args).await };
         let resp = self.runtime.block_on(res)?;
         match resp {
@@ -179,18 +186,6 @@ impl ClientVerifier {
             }
             AsyncResult::Error(m) => panic!("{:?}", m),
             AsyncResult::Failed(f) => panic!("{:?}", f),
-        }
-    }
-
-    fn copy_files(&self) {
-        // Copy Isabelle theory files
-        let mut options = CopyOptions::new();
-        options.content_only = true;
-        options.depth = 1;
-        options.overwrite = true;
-
-        if let Err(e) = fs_extra::dir::copy(&self.theory_root, self.temp_dir.clone(), &options) {
-            panic!("{}", e);
         }
     }
 
@@ -221,8 +216,9 @@ impl ModelVerifier for ClientVerifier {
         let session_id = self.session_id.clone();
 
         let mut theory = Theory::new("Validation", false);
+        theory.add_theory_import("smt.Strings");
+        theory.add_theory_import("smt.Core");
         theory.add_lemma(lemma.clone());
-        theory.add_theory_import("QF_S");
 
         let dir = PathBuf::from_str(&self.temp_dir).unwrap();
         match fs::File::create(dir.join("Validation.thy")) {

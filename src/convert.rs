@@ -1,5 +1,5 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-
 use std::{collections::HashMap, fs, path::PathBuf};
 
 use smt2parser::{
@@ -119,13 +119,26 @@ impl Converter {
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => {
-                for bad in unsupported_chars {
-                    if s.contains(bad) {
-                        return Err(format!("Contains unsupported char {}: {}", bad, s));
+                let ascii_mode = false;
+                if ascii_mode {
+                    for bad in unsupported_chars {
+                        if s.contains(bad) {
+                            return Err(format!("Contains unsupported char {}: {}", bad, s));
+                        }
                     }
+                    Ok(format!("\"{}\"", s))
+                } else {
+                    let mut as_char_list = String::from("[");
+                    for (i, c) in s.chars().enumerate() {
+                        if i < s.len() - 1 {
+                            as_char_list.push_str(&format!("{},", u32::from(c)));
+                        } else {
+                            as_char_list.push_str(&format!("{}", u32::from(c)));
+                        }
+                    }
+                    as_char_list.push(']');
+                    Ok(as_char_list)
                 }
-
-                Ok(format!("''{}''", s))
             }
         }
     }

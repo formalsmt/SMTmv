@@ -15,11 +15,8 @@ impl Lemma {
         // Here 'assms' uses the premises for substitutions and 'eval_nat_numeral' is required to implicitly convert natural numerals to (Suc (Suc ... 0))
         Self {
             name: name.to_owned(),
-            simps: HashSet::from_iter(
-                vec!["assms", "eval_nat_numeral"]
-                    .into_iter()
-                    .map(str::to_string),
-            ),
+            //"eval_nat_numeral"
+            simps: HashSet::from_iter(vec!["assms"].into_iter().map(str::to_string)),
             ..Default::default()
         }
     }
@@ -37,13 +34,6 @@ impl Lemma {
     }
 
     pub fn add_conclusion(&mut self, conclusion: &str) -> &mut Self {
-        if conclusion.contains("str_substr") {
-            self.simps.insert("fac_def".to_owned());
-        }
-        if conclusion.contains("str_prefixof") | conclusion.contains("str_suffixof") {
-            self.simps.insert("is_prefix_def".to_owned());
-            self.simps.insert("is_suffix_def".to_owned());
-        }
         self.conclusions.push(conclusion.to_owned());
         self
     }
@@ -92,6 +82,7 @@ lemma ?name: assumes ?model shows \"?formula\"
 
     fn split_conclusion(self) -> Vec<Lemma> {
         let mut builders = vec![];
+
         for (i, con) in self.conclusions.iter().enumerate() {
             let name = format!("{}_{}", self.name.clone(), i);
             let mut sl = Lemma::new(&name);
@@ -162,53 +153,4 @@ impl Theory {
         theory += "end\n";
         theory
     }
-}
-
-#[allow(unstable_name_collisions)]
-pub fn lemma_simp(formula: &str, model: &str, th_name: &str, imports: &[String]) -> String {
-    let tmpl = "
-theory ?th_name      
-    imports ?imports
-begin
-
-lemma validation: assumes \"?model\" shows \"?formula\"
-    apply(simp add: assms)
-    done
-
-end
-    ";
-    tmpl.replace("?model", model)
-        .replace("?formula", formula)
-        .replace("?th_name", th_name)
-        .replace(
-            "?imports",
-            &imports
-                .iter()
-                .map(|t| format!("\"{}\"", t))
-                .intersperse(" ".to_string())
-                .collect::<String>(),
-        )
-        .trim()
-        .to_string()
-}
-
-#[allow(unreachable_code, unused_variables)]
-pub fn lemma_auto(formula: &str, model: &str, th_name: &str) -> String {
-    unimplemented!();
-    let tmpl = "
-theory ?th_name      
-    imports QF_S
-begin
-
-lemma validation: assumes asm:\"?model\" shows \"?formula\"
-    apply(auto simp add: asm)
-    done
-
-end
-    ";
-    tmpl.replace("?model", model)
-        .replace("?formula", formula)
-        .replace("?th_name", th_name)
-        .trim()
-        .to_string()
 }
