@@ -142,8 +142,9 @@ pub struct ClientVerifier {
 }
 
 impl ClientVerifier {
+    #[allow(unused)]
     pub fn start_server(theory_root: &str) -> io::Result<Self> {
-        let mut server = isabelle_client::server::run_server(Some("vmv_server"))?;
+        let server = isabelle_client::server::run_server(Some("vmv_server"))?;
         log::debug!("Isabelle server is running on port {}", server.port());
         let client = IsabelleClient::connect(None, server.port(), server.password());
         let runtime = tokio::runtime::Runtime::new()?;
@@ -188,25 +189,6 @@ impl ClientVerifier {
             AsyncResult::Failed(f) => panic!("{:?}", f),
         }
     }
-
-    fn load_theory(&mut self, name: &str) -> io::Result<()> {
-        log::debug!("Loading theory {}", name);
-        let session_id = self.session_id.clone();
-        let mut args: UseTheoriesArgs = UseTheoriesArgs::for_session(&session_id, &[name]);
-        args.master_dir = Some(self.theory_root.clone());
-
-        let res = async { self.client.use_theories(&args).await };
-
-        let resp = self.runtime.block_on(res)?;
-        match resp {
-            AsyncResult::Finished(_) => {
-                log::debug!("Loaded theory {}", name);
-                Ok(())
-            }
-            AsyncResult::Error(m) => panic!("{:?}", m),
-            AsyncResult::Failed(f) => panic!("{:?}", f),
-        }
-    }
 }
 
 impl ModelVerifier for ClientVerifier {
@@ -223,7 +205,7 @@ impl ModelVerifier for ClientVerifier {
         let dir = PathBuf::from_str(&self.temp_dir).unwrap();
         match fs::File::create(dir.join("Validation.thy")) {
             Ok(th_file) => {
-                if let Err(e) = th_file.write_all_at(&theory.to_isabelle().as_bytes(), 0) {
+                if let Err(e) = th_file.write_all_at(theory.to_isabelle().as_bytes(), 0) {
                     panic!("{}", e)
                 }
             }
@@ -271,7 +253,7 @@ impl ModelVerifier for ClientVerifier {
         args.master_dir = Some(self.theory_root.clone());
 
         match self.runtime.block_on(self.client.purge_theories(args)) {
-            Ok(ok) => (),
+            Ok(_ok) => (),
             Err(e) => panic!("Failed to purge theory, aborting: {:?}", e),
         }
 

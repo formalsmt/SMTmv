@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf};
@@ -150,7 +151,7 @@ impl Converter {
                 Some(m) => Ok(m),
                 None => Err(format!("Unsupported operation: {}", op)),
             },
-            None => return Ok(op.clone()), // Variables
+            None => Ok(op.clone()), // Variables
         }
     }
 

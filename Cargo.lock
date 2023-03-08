@@ -3,22 +3,6 @@
 version = 3
 
 [[package]]
-name = "SMTmv"
-version = "0.1.0"
-dependencies = [
- "clap 4.0.32",
- "env_logger",
- "fs_extra",
- "isabelle-client",
- "itertools",
- "log",
- "serde",
- "serde_json",
- "smt2parser",
- "tokio",
-]
-
-[[package]]
 name = "aho-corasick"
 version = "0.7.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -929,6 +913,22 @@ dependencies = [
  "structopt",
  "strum",
  "thiserror",
+]
+
+[[package]]
+name = "smt_mv"
+version = "0.1.0"
+dependencies = [
+ "clap 4.0.32",
+ "env_logger",
+ "fs_extra",
+ "isabelle-client",
+ "itertools",
+ "log",
+ "serde",
+ "serde_json",
+ "smt2parser",
+ "tokio",
 ]
 
 [[package]]

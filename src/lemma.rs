@@ -12,10 +12,9 @@ pub struct Lemma {
 
 impl Lemma {
     pub fn new(name: &str) -> Self {
-        // Here 'assms' uses the premises for substitutions and 'eval_nat_numeral' is required to implicitly convert natural numerals to (Suc (Suc ... 0))
+        // Here 'assms' uses the premises for substitutions
         Self {
             name: name.to_owned(),
-            //"eval_nat_numeral"
             simps: HashSet::from_iter(vec!["assms"].into_iter().map(str::to_string)),
             ..Default::default()
         }
@@ -45,22 +44,24 @@ impl Lemma {
         self
     }
 
-    pub fn to_isabelle(self) -> String {
+    #[allow(unstable_name_collisions)]
+    pub fn to_isabelle(&self) -> String {
         let template = "
 lemma ?name: assumes ?model shows \"?formula\"
     apply(auto simp add: ?simps)
     done
 ";
 
-        let premises = format!(
-            "{}",
-            self.premises
-                .into_iter()
-                .map(|p| format!("\"{}\"", p))
-                .intersperse(" and ".to_string())
-                .collect::<String>()
-        );
+        let premises = self
+            .clone()
+            .premises
+            .into_iter()
+            .map(|p| format!("\"{}\"", p))
+            .intersperse(" and ".to_string())
+            .collect::<String>();
+
         let conclusion: String = self
+            .clone()
             .conclusions
             .into_iter()
             .intersperse(" \\<and> ".to_string())
@@ -137,7 +138,7 @@ impl Theory {
             theory += " Main\n";
         } else {
             for i in &self.imports {
-                theory += &i;
+                theory += i;
                 theory += " ";
             }
             theory += "\n";
@@ -146,7 +147,7 @@ impl Theory {
 
         // Lemmata
         for lemma in &self.lemmata {
-            theory += &lemma;
+            theory += lemma;
             theory += "\n";
         }
 
