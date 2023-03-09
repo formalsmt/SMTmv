@@ -393,6 +393,8 @@ dependencies = [
 [[package]]
 name = "isabelle-client"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e0182e16688fcf66536416200457e68c7a06667f7587e757d55d968318ef17"
 dependencies = [
  "env_logger",
  "log",
