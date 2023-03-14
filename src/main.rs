@@ -54,6 +54,8 @@ fn main() {
     };
 
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
+    // Make absolute
+    let th_path = fs::canonicalize(th_path).unwrap();
     let spec_path = th_path.join("spec.json");
     let converter = convert::Converter::from_spec_file(&spec_path);
 
@@ -92,7 +94,7 @@ fn main() {
 
     info!("💡 Checking model with Isabelle");
     //let mut checker = checker::ClientVerifier::start_server(&cli.throot).unwrap();
-    let mut checker = checker::BatchVerifier::new(&cli.throot);
+    let mut checker = checker::BatchVerifier::new(th_path.to_str().unwrap());
 
     match checker.check_model(&lemma) {
         checker::CheckResult::OK => {
@@ -147,7 +149,7 @@ fn sanitize_model(model: &str) -> Option<String> {
 }
 
 mod tests {
-    use super::*;
+    use super::sanitize_model;
 
     #[test]
     fn test_sanitize_model_unsat() {
