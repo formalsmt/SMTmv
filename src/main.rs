@@ -6,6 +6,7 @@ use crate::checker::ModelVerifier;
 use clap::{command, ArgGroup, Parser};
 use env_logger::Builder;
 use log::info;
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::io::{self, BufReader, Read};
@@ -56,8 +57,6 @@ fn main() {
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
     // Make absolute
     let th_path = fs::canonicalize(th_path).unwrap();
-    let spec_path = th_path.join("spec.json");
-    let converter = convert::Converter::from_spec_file(&spec_path);
 
     let mut fm_str = String::new();
     BufReader::new(File::open(cli.smt).unwrap())
@@ -69,6 +68,8 @@ fn main() {
         .replace("str.to.re", "str.to_re")
         .replace("str.in.re", "str.in_re");
 
+    let spec_path = th_path.join("spec.json");
+    let mut converter = convert::Converter::from_spec_file(&spec_path);
     let iformulas = match converter.convert(fm_str.as_bytes()) {
         Ok(f) => f,
         Err(e) => {
@@ -87,6 +88,17 @@ fn main() {
         }
     };
     info!("📝 Converted SMT model to Isabelle");
+
+    let undefined_vars: HashSet<String> = converter
+        .get_vars_used()
+        .difference(&converter.get_vars_defined())
+        .cloned()
+        .collect();
+    if !undefined_vars.is_empty() {
+        log::info!("Undefined variables: {:?}", undefined_vars);
+        println!("unsat");
+        exit(1);
+    }
 
     let mut lemma = lemma::Lemma::new("validation");
     lemma.add_conclusions(&iformulas);

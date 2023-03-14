@@ -1,7 +1,11 @@
 #![allow(unused_imports)]
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+};
 
 use smt2parser::{
     concrete::{Command, Constant},
@@ -54,6 +58,8 @@ impl SpecDef {
 
 pub struct Converter {
     spec: SpecDef,
+    vars_used: HashSet<String>,
+    vars_defined: HashSet<String>,
 }
 
 impl Converter {
@@ -62,7 +68,19 @@ impl Converter {
             Ok(s) => s,
             Err(e) => panic!("{}", e),
         };
-        Self { spec }
+        Self {
+            vars_used: HashSet::new(),
+            vars_defined: HashSet::new(),
+            spec,
+        }
+    }
+
+    pub fn get_vars_used(&self) -> HashSet<String> {
+        self.vars_used.clone()
+    }
+
+    pub fn get_vars_defined(&self) -> HashSet<String> {
+        self.vars_defined.clone()
     }
 
     pub fn from_spec_file(spec_file: &PathBuf) -> Self {
@@ -73,7 +91,7 @@ impl Converter {
         Converter::new(spec)
     }
 
-    pub fn convert(&self, input: impl std::io::BufRead) -> Result<Vec<String>, String> {
+    pub fn convert(&mut self, input: impl std::io::BufRead) -> Result<Vec<String>, String> {
         let stream = CommandStream::new(input, concrete::SyntaxBuilder, None);
         let commands = stream.collect::<Result<Vec<_>, _>>().unwrap();
 
@@ -91,12 +109,13 @@ impl Converter {
     }
 
     #[allow(unstable_name_collisions)]
-    fn convert_fun_defines(&self, decl: &FunctionDec, term: &Term) -> Result<String, String> {
+    fn convert_fun_defines(&mut self, decl: &FunctionDec, term: &Term) -> Result<String, String> {
+        self.vars_defined.insert(decl.name.to_string());
         Ok(format!("{} = {}", decl.name, self.convert_term(term)?))
     }
 
     #[allow(unused_variables)]
-    fn convert_term(&self, t: &Term) -> Result<String, String> {
+    fn convert_term(&mut self, t: &Term) -> Result<String, String> {
         match t {
             Term::Constant(c) => self.convert_constant(c),
             Term::QualIdentifier(i) => self.convert_identifier(i),
@@ -144,14 +163,18 @@ impl Converter {
         }
     }
 
-    fn convert_identifier(&self, identifier: &QualIdentifier) -> Result<String, String> {
+    fn convert_identifier(&mut self, identifier: &QualIdentifier) -> Result<String, String> {
         let op = &self.identifier_name(identifier);
         match self.spec.get_spec(op) {
             Some(m) => match m.1.mapsto {
                 Some(m) => Ok(m),
                 None => Err(format!("Unsupported operation: {}", op)),
             },
-            None => Ok(op.clone()), // Variables
+            None => {
+                // Variables
+                self.vars_used.insert(op.clone());
+                Ok(op.clone())
+            }
         }
     }
 
@@ -160,7 +183,7 @@ impl Converter {
             QualIdentifier::Simple { identifier } | QualIdentifier::Sorted { identifier, .. } => {
                 match identifier {
                     Identifier::Simple { symbol } => symbol.0.to_string(),
-                    Identifier::Indexed { .. } => todo!(),
+                    Identifier::Indexed { .. } => todo!(), // Not needed for Strings
                 }
             }
         }
@@ -193,7 +216,7 @@ impl Converter {
     }
 
     fn convert_application(
-        &self,
+        &mut self,
         identifier: &QualIdentifier,
         args: &Vec<Term>,
     ) -> Result<String, String> {
