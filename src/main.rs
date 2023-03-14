@@ -32,7 +32,7 @@ struct Cli {
 fn main() {
     init_logger();
     let cli = Cli::parse();
-    let mut model = if cli.stdin {
+    let raw_model = if cli.stdin {
         let mut stdin = io::stdin();
         let mut lines = String::new();
         stdin
@@ -44,24 +44,14 @@ fn main() {
     } else {
         panic!("No model")
     };
-    model = model.trim().to_string();
 
-    if model.starts_with("sat\n(") {
-        model = model
-            .strip_prefix("sat")
-            .unwrap()
-            .trim()
-            .strip_prefix('(')
-            .unwrap()
-            .strip_suffix(')')
-            .unwrap()
-            .trim()
-            .to_string()
-    } else if model.starts_with("unsat") {
+    let model = if let Some(m) = sanitize_model(&raw_model) {
+        log::debug!("Got model {}", m);
+        m
+    } else {
+        log::debug!("unsat");
         exit(0);
-    }
-
-    log::debug!("Got model {}", model);
+    };
 
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
     let spec_path = th_path.join("spec.json");
@@ -124,4 +114,68 @@ fn init_logger() {
     builder
         .format(|buf, record| writeln!(buf, "[{}] {}", record.level(), record.args()))
         .init();
+}
+
+fn sanitize_model(model: &str) -> Option<String> {
+    let mut model = model.trim().to_owned();
+
+    if model.starts_with("unsat") {
+        return None;
+    }
+
+    // Unwrap model from 'sat(...)'
+    if model.starts_with("sat\n(") {
+        model = model
+            .strip_prefix("sat")
+            .unwrap()
+            .trim()
+            .strip_prefix('(')
+            .unwrap()
+            .strip_suffix(')')
+            .unwrap()
+            .trim()
+            .to_owned()
+    } else {
+        return None;
+    }
+
+    // Remove additional 'model' prefix older z3 version produce
+    if model.starts_with("model") {
+        model = model.strip_prefix("model").unwrap().trim().to_owned();
+    };
+    Some(model)
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_model_unsat() {
+        let model = "unsat".to_owned();
+        assert_eq!(sanitize_model(&model), None);
+    }
+
+    #[test]
+    fn test_sanitize_model_sat() {
+        let model = "sat\n((define-fun x () Int 1))".to_owned();
+        assert_eq!(
+            sanitize_model(&model),
+            Some("(define-fun x () Int 1)".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_model_sat_old_z3() {
+        let model = "sat\n(model (define-fun x () Int 1))".to_owned();
+        assert_eq!(
+            sanitize_model(&model),
+            Some("(define-fun x () Int 1)".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_sanitize_model_empty_string() {
+        let model = "".to_owned();
+        assert_eq!(sanitize_model(&model), None);
+    }
 }
