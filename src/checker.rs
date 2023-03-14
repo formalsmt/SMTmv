@@ -57,8 +57,7 @@ impl BatchVerifier {
             Err(e) => return Err(e.to_string()),
         };
 
-        // Isabelle does not seem to write to stderr
-        //let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
+        let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
         let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
         log::debug!("Stdout: {}", stdout);
         if output.status.success() {
@@ -72,7 +71,7 @@ impl BatchVerifier {
                 Ok(CheckResult::FailedUnknown)
             }
         } else {
-            Err(format!("Failed to check proof for {}", stdout))
+            Err(format!("Failed to check proof for {};{}", stdout, stderr))
         }
     }
 }
@@ -91,9 +90,9 @@ impl ModelVerifier for BatchVerifier {
         options.content_only = true;
         options.skip_exist = true;
 
-        //if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
-        //   panic!("{}", e);
-        //}
+        if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
+            panic!("{}", e);
+        }
 
         // Create new theory file with lemma
         let mut theory = Theory::new("Validation", false);
@@ -115,6 +114,7 @@ impl ModelVerifier for BatchVerifier {
         }
 
         // Call isabelle
+        log::debug!("Dir: {:?}, THROOT: {}", dir.to_str(), &self.theory_root);
         match self.run_isabelle(&dir, &self.theory_root) {
             Ok(CheckResult::OK) => CheckResult::OK,
             Ok(CheckResult::FailedInvalid) => {
