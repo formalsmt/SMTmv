@@ -132,33 +132,23 @@ impl Converter {
     }
 
     fn convert_constant(&self, c: &Constant) -> Result<String, String> {
-        let unsupported_chars = vec!['\\', '\'', '\"'];
         match c {
             Constant::Numeral(n) => Ok(format!("({}::int)", n)),
             Constant::Decimal(d) => Ok(format!("{}", d)),
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => {
-                let ascii_mode = false;
-                if ascii_mode {
-                    for bad in unsupported_chars {
-                        if s.contains(bad) {
-                            return Err(format!("Contains unsupported char {}: {}", bad, s));
-                        }
+                let s = unicode_unescape(s);
+                let mut as_char_list = String::from("[");
+                for (i, c) in s.chars().enumerate() {
+                    if i < s.len() - 1 {
+                        as_char_list.push_str(&format!("{},", u32::from(c)));
+                    } else {
+                        as_char_list.push_str(&format!("{}", u32::from(c)));
                     }
-                    Ok(format!("\"{}\"", s))
-                } else {
-                    let mut as_char_list = String::from("[");
-                    for (i, c) in s.chars().enumerate() {
-                        if i < s.len() - 1 {
-                            as_char_list.push_str(&format!("{},", u32::from(c)));
-                        } else {
-                            as_char_list.push_str(&format!("{}", u32::from(c)));
-                        }
-                    }
-                    as_char_list.push(']');
-                    Ok(as_char_list)
                 }
+                as_char_list.push(']');
+                Ok(as_char_list)
             }
         }
     }
@@ -247,5 +237,96 @@ impl Converter {
             s += ")";
             Ok(s)
         }
+    }
+}
+
+fn unicode_unescape(s: &str) -> String {
+    let mut res = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('u') => match chars.next() {
+                    Some('{') => {
+                        let mut code = String::new();
+                        while let Some(n) = chars.next() {
+                            if n == '}' {
+                                break;
+                            }
+                            code.push(n);
+                        }
+                        let code = u32::from_str_radix(&code, 16).unwrap();
+                        res.push(char::from_u32(code).unwrap());
+                    }
+                    Some(c) => {
+                        let mut code = String::new();
+                        code.push(c);
+                        for _ in 0..4 {
+                            code.push(chars.next().unwrap());
+                        }
+                        let code = u32::from_str_radix(&code, 16).unwrap();
+                        res.push(char::from_u32(code).unwrap());
+                    }
+                    None => panic!("Invalid escape sequence"),
+                },
+                Some('x') => {
+                    let mut code = String::new();
+                    for _ in 0..2 {
+                        code.push(chars.next().unwrap());
+                    }
+                    let code = u32::from_str_radix(&code, 16).unwrap();
+                    res.push(char::from_u32(code).unwrap());
+                }
+                Some(c) => {
+                    res.push(c);
+                }
+                None => panic!("Invalid escape sequence"),
+            }
+        } else {
+            res.push(c);
+        }
+    }
+    res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unicode_unescape;
+
+    #[test]
+    fn basic_unescapes() {
+        assert_eq!(unicode_unescape("hello\\u{21}"), "hello!".to_owned());
+        assert_eq!(unicode_unescape("\\u{1f600}"), "😀".to_owned());
+        assert_eq!(unicode_unescape("\\u1f600"), "😀".to_owned());
+    }
+
+    #[test]
+    fn smt25_unescapes() {
+        assert_eq!(unicode_unescape("hello\\x21"), "hello!".to_owned());
+        assert_eq!(unicode_unescape("\\x65"), "e".to_owned());
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_escape_sequence1() {
+        unicode_unescape("\\u{}");
+    }
+
+    #[test]
+    #[should_panic]
+    fn tooshort_escape_sequence() {
+        unicode_unescape("\\u12");
+    }
+
+    #[test]
+    #[should_panic]
+    fn nonhex_escape_sequence() {
+        unicode_unescape("\\u{12g}");
+    }
+
+    #[test]
+    #[should_panic]
+    fn smt25_invalid() {
+        assert_eq!(unicode_unescape("\\xFG"), "e".to_owned());
     }
 }

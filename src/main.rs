@@ -50,7 +50,7 @@ fn main() {
         log::debug!("Got model {}", m);
         m
     } else {
-        log::debug!("unsat");
+        log::debug!("no model");
         exit(0);
     };
 

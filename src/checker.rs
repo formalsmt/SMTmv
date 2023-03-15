@@ -39,6 +39,7 @@ impl BatchVerifier {
             .process_output_limit(1)
             .process_output_tail(1)
             .record_proofs(0)
+            .parallel_proofs(2)
             .quick_and_dirty(true);
 
         let args = process::ProcessArgs {
