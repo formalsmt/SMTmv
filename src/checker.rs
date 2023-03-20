@@ -9,28 +9,36 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{fs, io};
 
+/// The result of a lemma checking
 pub enum CheckResult {
+    /// Proof checked successfully
     OK,
+    /// Proof checking failed because of an unknown reason
     FailedUnknown,
+    /// Proof checking failed because the proof is invalid (i.e. the lemma is false)
     FailedInvalid,
 }
 
-pub trait ModelVerifier {
-    fn check_model(&mut self, lemma: &Lemma) -> CheckResult;
+/// A trait for checking lemmas
+pub trait LemmaChecker {
+    /// Checks whether the given lemma is true
+    fn check(&mut self, lemma: &Lemma) -> CheckResult;
 }
 
-pub struct BatchVerifier {
+/// Checks a lemma using the Isabelle process in batch mode
+pub struct BatchChecker {
     theory_root: String,
 }
 
-impl BatchVerifier {
-    #[allow(unused)]
+impl BatchChecker {
     pub fn new(theory_root: &str) -> Self {
         Self {
             theory_root: theory_root.to_string(),
         }
     }
 
+    /// Runs Isabelle in batch mode and loads the theory containing the lemma to check.
+    /// Returns the result based on the output of Isabelle.
     fn run_isabelle(&self, dir: &PathBuf, theory_root: &str) -> Result<CheckResult, String> {
         let mut options = process::OptionsBuilder::new();
         options
@@ -49,7 +57,6 @@ impl BatchVerifier {
             options: options.into(),
         };
 
-        log::debug!("Temp dir: {:?}", dir);
         let output = match tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(process::batch_process(&args, Some(dir)))
@@ -60,7 +67,6 @@ impl BatchVerifier {
 
         let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
         let stdout = String::from_utf8(output.stdout).expect("Failed to decode stdout");
-        log::debug!("Stdout: {}", stdout);
         if output.status.success() {
             Ok(CheckResult::OK)
         } else if stdout.contains("Failed to finish proof") {
@@ -72,19 +78,16 @@ impl BatchVerifier {
                 Ok(CheckResult::FailedUnknown)
             }
         } else {
-            Err(format!("Failed to check proof for {};{}", stdout, stderr))
+            Err(format!("Failed to check proof: {}\n{}", stdout, stderr))
         }
     }
 }
 
-impl ModelVerifier for BatchVerifier {
-    fn check_model(&mut self, lemma: &Lemma) -> CheckResult {
+impl LemmaChecker for BatchChecker {
+    fn check(&mut self, lemma: &Lemma) -> CheckResult {
+        // TODO: Check if that is still needed with the heap image
         // Create temporary folder
         let dir = make_dir();
-
-        // Remove old files
-        //fs::remove_dir_all(&dir).unwrap();
-
         // Copy Isabelle theory files
         let mut options = CopyOptions::new();
         options.depth = 0;
@@ -115,7 +118,6 @@ impl ModelVerifier for BatchVerifier {
         }
 
         // Call isabelle
-        log::debug!("Dir: {:?}, THROOT: {}", dir.to_str(), &self.theory_root);
         match self.run_isabelle(&dir, &self.theory_root) {
             Ok(CheckResult::OK) => CheckResult::OK,
             Ok(CheckResult::FailedInvalid) => {
@@ -134,18 +136,35 @@ impl ModelVerifier for BatchVerifier {
     }
 }
 
-pub struct ClientVerifier {
+/// Verifies models using the Isabelle server.
+/// When verifying multiple models, this is much faster than the batch verifier, because the servers keeps the image of the base theories loaded.
+/// Uses the Isabelle server instance named 'smtmv_server' and creates it if it does not exist.
+///
+/// ## Warning
+/// Currently, this should not be used because the server uses substantial amounts of memory that it does not seem to free after validating a model.
+/// This causes the server to run out of memory after a few validation calls.
+/// I don't know if this is a memory leak in the server or if its not properly used here.
+///
+/// Moreover, it currently does not check why a check failed.
+/// It only returns either CheckResult::OK or CheckResult::FailedUnknown, but never CheckResult::FailedInvalid.
+struct ClientChecker {
+    /// The client for the Isabelle server
     client: IsabelleClient,
+    /// The root directory of the Isabelle SMT theories
     theory_root: String,
+    /// The session id on the server
     session_id: String,
+    /// The runtime for the async client
     runtime: tokio::runtime::Runtime,
+    /// The temporary directory for validation theory files
     temp_dir: String,
 }
 
-impl ClientVerifier {
+impl ClientChecker {
+    /// Starts a new Isabelle server and connects to it.
     #[allow(unused)]
     pub fn start_server(theory_root: &str) -> io::Result<Self> {
-        let server = isabelle_client::server::run_server(Some("vmv_server"))?;
+        let server = isabelle_client::server::run_server(Some("smtmv_server"))?;
         log::debug!("Isabelle server is running on port {}", server.port());
         let client = IsabelleClient::connect(None, server.port(), server.password());
         let runtime = tokio::runtime::Runtime::new()?;
@@ -159,8 +178,6 @@ impl ClientVerifier {
         };
 
         v.start_session()?;
-        //v.load_theory("smt")?;
-
         Ok(v)
     }
 
@@ -192,8 +209,8 @@ impl ClientVerifier {
     }
 }
 
-impl ModelVerifier for ClientVerifier {
-    fn check_model(&mut self, lemma: &Lemma) -> CheckResult {
+impl LemmaChecker for ClientChecker {
+    fn check(&mut self, lemma: &Lemma) -> CheckResult {
         // Create temporary folder
 
         let session_id = self.session_id.clone();
@@ -234,7 +251,7 @@ impl ModelVerifier for ClientVerifier {
                 CheckResult::FailedUnknown
             }
             AsyncResult::Failed(f) => {
-                // TODO: Check reason!
+                // TODO: Check why, return FailedInvalid if possible
                 log::warn!("Proving theory failed: {:?}", f.message);
                 CheckResult::FailedUnknown
             }
@@ -242,8 +259,8 @@ impl ModelVerifier for ClientVerifier {
                 if f.ok {
                     CheckResult::OK
                 } else {
-                    log::warn!("Proving theory unsuccessful: {:?}", f.errors);
                     log::warn!("{}", theory.to_isabelle());
+                    // TODO: Check why, return FailedInvalid if possible
                     CheckResult::FailedUnknown
                 }
             }
