@@ -1,16 +1,17 @@
 mod checker;
 mod convert;
+mod error;
 mod lemma;
 mod validation;
 
 use clap::{command, ArgGroup, Parser};
 use env_logger::Builder;
-use log::info;
 
 use std::fs::{self, File};
 use std::io::Write;
 use std::io::{self, BufReader, Read};
 use std::path::PathBuf;
+use std::process::exit;
 use std::str::FromStr;
 
 #[derive(Parser)]
@@ -46,7 +47,8 @@ fn main() {
     } else if let Some(m) = cli.model {
         fs::read_to_string(m).unwrap()
     } else {
-        panic!("No model")
+        log::error!("No model");
+        exit(-1);
     };
 
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
@@ -58,11 +60,15 @@ fn main() {
         .read_to_string(&mut fm_str)
         .expect("Failed to read formula");
 
+    log::info!("Starting validation");
     match validation::validate(raw_model, fm_str, &th_path) {
         Ok(validation::ValidationResult::Valid) => println!("valid"),
         Ok(validation::ValidationResult::Invalid) => println!("invalid"),
-        Ok(validation::ValidationResult::Unknown) => info!("unknown"),
-        Err(e) => info!("Error: {}", e),
+        Ok(validation::ValidationResult::Unknown) => println!("unknown"),
+        Err(e) => {
+            log::error!("Error: {}", e);
+            exit(-1);
+        }
     }
 }
 

@@ -14,6 +14,8 @@ use smt2parser::{
     *,
 }; // 0.8.0
 
+use crate::error::Error;
+
 /// The specification to map an SMT-LIB function to Isabelle/HOL using the Isabelle SMT theories.
 #[derive(Serialize, Deserialize, Clone)]
 struct Spec {
@@ -70,23 +72,29 @@ pub struct Converter {
 
 impl Converter {
     /// Creates a new converter from the given specification.
-    pub fn new(spec_json: String) -> Self {
+    pub fn new(spec_json: String) -> Result<Self, Error> {
         let spec: SpecDef = match serde_json::from_str(&spec_json) {
             Ok(s) => s,
-            Err(e) => panic!("{}", e),
+            Err(e) => return Err(Error::Other(format!("{}", e))),
         };
-        Self {
+        Ok(Self {
             vars_used: HashSet::new(),
             vars_defined: HashSet::new(),
             spec,
-        }
+        })
     }
 
     /// Creates a new converter from the given specification file.
-    pub fn from_spec_file(spec_file: &PathBuf) -> Self {
+    pub fn from_spec_file(spec_file: &PathBuf) -> Result<Self, Error> {
         let spec = match fs::read_to_string(spec_file) {
             Ok(b) => b,
-            Err(e) => panic!("Error loading {:?}: {}", spec_file.as_os_str(), e),
+            Err(e) => {
+                return Err(Error::Other(format!(
+                    "Error loading {:?}: {}",
+                    spec_file.as_os_str(),
+                    e
+                )))
+            }
         };
         Converter::new(spec)
     }
@@ -103,14 +111,17 @@ impl Converter {
 
     /// Converts the given SMT-LIB formula to Isabelle/HOL.
     /// The results is a list of Isabelle/HOL terms that in conjunction are equivalent to the input formula.
-    pub fn convert(&mut self, input: String) -> Result<Vec<String>, String> {
+    pub fn convert(&mut self, input: String) -> Result<Vec<String>, Error> {
         // Convert from smt 2.5 to smt 2.6
         let input = input
             .replace("str.to.re", "str.to_re")
             .replace("str.in.re", "str.in_re");
 
         let stream = CommandStream::new(input.as_bytes(), concrete::SyntaxBuilder, None);
-        let commands = stream.collect::<Result<Vec<_>, _>>().unwrap();
+        let commands = match stream.collect::<Result<Vec<_>, _>>() {
+            Ok(c) => c,
+            Err(e) => return Err(Error::ParseError(e)),
+        };
 
         let mut converted = vec![];
         for c in &commands {
@@ -127,14 +138,14 @@ impl Converter {
 
     /// Convert a function definition to an Isabelle/HOL term.
     #[allow(unstable_name_collisions)]
-    fn convert_fun_defines(&mut self, decl: &FunctionDec, term: &Term) -> Result<String, String> {
+    fn convert_fun_defines(&mut self, decl: &FunctionDec, term: &Term) -> Result<String, Error> {
         self.vars_defined.insert(decl.name.to_string());
         Ok(format!("{} = {}", decl.name, self.convert_term(term)?))
     }
 
     /// Convert a term to an Isabelle/HOL term.
     #[allow(unused_variables)]
-    fn convert_term(&mut self, t: &Term) -> Result<String, String> {
+    fn convert_term(&mut self, t: &Term) -> Result<String, Error> {
         match t {
             Term::Constant(c) => self.convert_constant(c),
             Term::QualIdentifier(i) => self.convert_identifier(i),
@@ -151,14 +162,14 @@ impl Converter {
     }
 
     /// Convert a constant to an Isabelle/HOL term.
-    fn convert_constant(&self, c: &Constant) -> Result<String, String> {
+    fn convert_constant(&self, c: &Constant) -> Result<String, Error> {
         match c {
             Constant::Numeral(n) => Ok(format!("({}::int)", n)),
             Constant::Decimal(d) => Ok(format!("{}", d)),
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => {
-                let s = unicode_unescape(s, true);
+                let s = unicode_unescape(s, true)?;
                 let mut as_char_list = String::from("[");
                 for (i, c) in s.chars().enumerate() {
                     if i < s.len() - 1 {
@@ -174,12 +185,12 @@ impl Converter {
     }
 
     /// Convert an identifier to an Isabelle/HOL identifier.
-    fn convert_identifier(&mut self, identifier: &QualIdentifier) -> Result<String, String> {
+    fn convert_identifier(&mut self, identifier: &QualIdentifier) -> Result<String, Error> {
         let op = &self.identifier_name(identifier);
         match self.spec.get_spec(op) {
             Some(m) => match m.1.mapsto {
                 Some(m) => Ok(m),
-                None => Err(format!("Unsupported operation: {}", op)),
+                None => Err(Error::Unsupported(op.to_string())),
             },
             None => {
                 // Variables
@@ -234,11 +245,11 @@ impl Converter {
         &mut self,
         identifier: &QualIdentifier,
         args: &Vec<Term>,
-    ) -> Result<String, String> {
+    ) -> Result<String, Error> {
         let op = &self.identifier_name(identifier);
         let spec = match self.spec.get_spec(op) {
             Some(m) => m.1,
-            None => return Err(format!("Unknown operation: {}", op)),
+            None => return Err(Error::Unsupported(op.to_string())),
         };
 
         if spec.is_left_assoc() && args.len() > 2 {
@@ -248,7 +259,7 @@ impl Converter {
         } else {
             let name = match spec.mapsto {
                 Some(n) => n,
-                None => return Err(format!("Unsupported operation: {}", op)),
+                None => return Err(Error::Unsupported(op.to_string())),
             };
             let mut s = if args.len() <= 1 {
                 format!("({} ", name)
@@ -267,7 +278,7 @@ impl Converter {
 
 /// Unescape a string literal as specified in the SMT-LIB standard.
 /// If `legacy` is true, additionally unescapes unicode escape sequences in SMT-LIB 2.5 syntax (`\xAB` with A, B hex chars).
-fn unicode_unescape(s: &str, legacy: bool) -> String {
+fn unicode_unescape(s: &str, legacy: bool) -> Result<String, Error> {
     let mut res = String::new();
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -295,7 +306,7 @@ fn unicode_unescape(s: &str, legacy: bool) -> String {
                         let code = u32::from_str_radix(&code, 16).unwrap();
                         res.push(char::from_u32(code).unwrap());
                     }
-                    None => panic!("Invalid escape sequence"),
+                    None => return Err(Error::Other("Invalid escape sequence".to_string())),
                 },
                 Some('x') if legacy => {
                     let mut code = String::new();
@@ -308,13 +319,13 @@ fn unicode_unescape(s: &str, legacy: bool) -> String {
                 Some(c) => {
                     res.push(c);
                 }
-                None => panic!("Invalid escape sequence"),
+                None => return Err(Error::Other("Invalid escape sequence".to_string())),
             }
         } else {
             res.push(c);
         }
     }
-    res
+    Ok(res)
 }
 
 #[cfg(test)]
@@ -323,15 +334,27 @@ mod tests {
 
     #[test]
     fn basic_unescapes() {
-        assert_eq!(unicode_unescape("hello\\u{21}", false), "hello!".to_owned());
-        assert_eq!(unicode_unescape("\\u{1f600}", false), "😀".to_owned());
-        assert_eq!(unicode_unescape("\\u1f600", false), "😀".to_owned());
+        assert_eq!(
+            unicode_unescape("hello\\u{21}", false).unwrap(),
+            "hello!".to_owned()
+        );
+        assert_eq!(
+            unicode_unescape("\\u{1f600}", false).unwrap(),
+            "😀".to_owned()
+        );
+        assert_eq!(
+            unicode_unescape("\\u1f600", false).unwrap(),
+            "😀".to_owned()
+        );
     }
 
     #[test]
     fn smt25_unescapes() {
-        assert_eq!(unicode_unescape("hello\\x21", true), "hello!".to_owned());
-        assert_eq!(unicode_unescape("\\x65", true), "e".to_owned());
+        assert_eq!(
+            unicode_unescape("hello\\x21", true).unwrap(),
+            "hello!".to_owned()
+        );
+        assert_eq!(unicode_unescape("\\x65", true).unwrap(), "e".to_owned());
     }
 
     #[test]
@@ -355,6 +378,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn smt25_invalid() {
-        assert_eq!(unicode_unescape("\\xFG", true), "e".to_owned());
+        assert_eq!(unicode_unescape("\\xFG", true).unwrap(), "e".to_owned());
     }
 }

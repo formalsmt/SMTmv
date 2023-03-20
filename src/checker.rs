@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::lemma::{Lemma, Theory};
 use fs_extra::dir::CopyOptions;
 use isabelle_client::client::args::{PurgeTheoryArgs, UseTheoriesArgs};
@@ -22,7 +23,7 @@ pub enum CheckResult {
 /// A trait for checking lemmas
 pub trait LemmaChecker {
     /// Checks whether the given lemma is true
-    fn check(&mut self, lemma: &Lemma) -> CheckResult;
+    fn check(&mut self, lemma: &Lemma) -> Result<CheckResult, Error>;
 }
 
 /// Checks a lemma using the Isabelle process in batch mode
@@ -39,7 +40,7 @@ impl BatchChecker {
 
     /// Runs Isabelle in batch mode and loads the theory containing the lemma to check.
     /// Returns the result based on the output of Isabelle.
-    fn run_isabelle(&self, dir: &PathBuf, theory_root: &str) -> Result<CheckResult, String> {
+    fn run_isabelle(&self, dir: &PathBuf, theory_root: &str) -> Result<CheckResult, Error> {
         let mut options = process::OptionsBuilder::new();
         options
             .build_pide_reports(false)
@@ -57,12 +58,16 @@ impl BatchChecker {
             options: options.into(),
         };
 
+        log::info!("Checking lemma with Isabelle");
         let output = match tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(process::batch_process(&args, Some(dir)))
         {
             Ok(o) => o,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                log::error!("Error running the Isabelle process:s {}", e.to_string());
+                return Err(Error::IsabelleError);
+            }
         };
 
         let stderr = String::from_utf8(output.stderr).expect("Failed to decode stderr");
@@ -70,21 +75,27 @@ impl BatchChecker {
         if output.status.success() {
             Ok(CheckResult::OK)
         } else if stdout.contains("Failed to finish proof") {
-            log::debug!("{}", stdout);
+            log::debug!("Proof could not be finished: {}", stdout);
             if stdout.contains("1. False") {
                 // Heuristic
+                log::debug!("Lemma is invalid");
                 Ok(CheckResult::FailedInvalid)
             } else {
                 Ok(CheckResult::FailedUnknown)
             }
         } else {
-            Err(format!("Failed to check proof: {}\n{}", stdout, stderr))
+            log::error!(
+                "Isabelle process terminated with non-zero exit status\nSTDOUT:\n{}\n STDERR:\n{}",
+                stdout,
+                stderr
+            );
+            Err(Error::IsabelleError)
         }
     }
 }
 
 impl LemmaChecker for BatchChecker {
-    fn check(&mut self, lemma: &Lemma) -> CheckResult {
+    fn check(&mut self, lemma: &Lemma) -> Result<CheckResult, Error> {
         // TODO: Check if that is still needed with the heap image
         // Create temporary folder
         let dir = make_dir();
@@ -106,8 +117,6 @@ impl LemmaChecker for BatchChecker {
 
         let th = theory.to_isabelle();
 
-        log::debug!("{}", th);
-
         match fs::File::create(dir.join("Validation.thy")) {
             Ok(th_file) => {
                 if let Err(e) = th_file.write_all_at(th.as_bytes(), 0) {
@@ -118,21 +127,7 @@ impl LemmaChecker for BatchChecker {
         }
 
         // Call isabelle
-        match self.run_isabelle(&dir, &self.theory_root) {
-            Ok(CheckResult::OK) => CheckResult::OK,
-            Ok(CheckResult::FailedInvalid) => {
-                log::warn!("{}", th.as_str());
-                CheckResult::FailedInvalid
-            }
-            Ok(CheckResult::FailedUnknown) => {
-                log::warn!("{}", th.as_str());
-                CheckResult::FailedUnknown
-            }
-            Err(e) => {
-                log::error!("{}", e);
-                panic!("Failed to check lemma:\n{}", th.as_str());
-            }
-        }
+        self.run_isabelle(&dir, &self.theory_root)
     }
 }
 
@@ -210,7 +205,7 @@ impl ClientChecker {
 }
 
 impl LemmaChecker for ClientChecker {
-    fn check(&mut self, lemma: &Lemma) -> CheckResult {
+    fn check(&mut self, lemma: &Lemma) -> Result<CheckResult, Error> {
         // Create temporary folder
 
         let session_id = self.session_id.clone();
@@ -275,7 +270,7 @@ impl LemmaChecker for ClientChecker {
             Err(e) => panic!("Failed to purge theory, aborting: {:?}", e),
         }
 
-        result
+        Ok(result)
     }
 }
 
