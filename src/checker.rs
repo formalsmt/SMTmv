@@ -4,7 +4,7 @@ use fs_extra::dir::CopyOptions;
 use isabelle_client::client::args::{PurgeTheoryArgs, UseTheoriesArgs};
 use isabelle_client::client::{AsyncResult, IsabelleClient};
 use isabelle_client::process;
-use std::env::temp_dir;
+
 use std::os::unix::prelude::FileExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
