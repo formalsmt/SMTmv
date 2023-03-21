@@ -51,6 +51,8 @@ fn main() {
         exit(-1);
     };
 
+    log::trace!("Received model: '{}'", raw_model);
+
     let th_path = PathBuf::from_str(&cli.throot).unwrap();
     // Make absolute
     let th_path = fs::canonicalize(th_path).unwrap();
