@@ -169,15 +169,18 @@ impl Converter {
             Constant::Hexadecimal(_) => todo!(),
             Constant::Binary(_) => todo!(),
             Constant::String(s) => {
-                let s = unicode_unescape(s, true)?;
+                let s_unescaped = unicode_unescape(s, true)?;
+                log::debug!("Unescaped string: {} => {}", s, s_unescaped);
                 let mut as_char_list = String::from("[");
-                for (i, c) in s.chars().enumerate() {
-                    if i < s.len() - 1 {
-                        as_char_list.push_str(&format!("{},", u32::from(c)));
+                let chars = s_unescaped.chars().collect::<Vec<_>>();
+                for (i, c) in chars.iter().enumerate() {
+                    if i == chars.len() - 1 {
+                        as_char_list.push_str(&format!("{}", u32::from(*c)));
                     } else {
-                        as_char_list.push_str(&format!("{}", u32::from(c)));
+                        as_char_list.push_str(&format!("{},", u32::from(*c)));
                     }
                 }
+                assert!(!as_char_list.ends_with(','), "{}", as_char_list);
                 as_char_list.push(']');
                 Ok(as_char_list)
             }
