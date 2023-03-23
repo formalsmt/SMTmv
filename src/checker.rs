@@ -1,6 +1,5 @@
 use crate::error::Error;
 use crate::lemma::{Lemma, Theory};
-use fs_extra::dir::CopyOptions;
 use isabelle_client::client::args::{PurgeTheoryArgs, UseTheoriesArgs};
 use isabelle_client::client::{AsyncResult, IsabelleClient};
 use isabelle_client::process;
@@ -100,16 +99,6 @@ impl LemmaChecker for BatchChecker {
         // Create temporary folder
         let dir = make_dir();
 
-        // Copy Isabelle theory files
-        let mut options = CopyOptions::new();
-        options.depth = 0;
-        options.content_only = true;
-        options.skip_exist = true;
-
-        if let Err(e) = fs_extra::dir::copy(&self.theory_root, dir.path(), &options) {
-            panic!("{}", e);
-        }
-
         // Create new theory file with lemma
         let mut theory = Theory::new("Validation", false);
         theory.add_theory_import("smt.Strings");
@@ -143,7 +132,7 @@ impl LemmaChecker for BatchChecker {
 ///
 /// Moreover, it currently does not check why a check failed.
 /// It only returns either CheckResult::OK or CheckResult::FailedUnknown, but never CheckResult::FailedInvalid.
-struct ClientChecker {
+pub struct ClientChecker {
     /// The client for the Isabelle server
     client: IsabelleClient,
     /// The root directory of the Isabelle SMT theories
