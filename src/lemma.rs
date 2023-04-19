@@ -48,7 +48,7 @@ impl Lemma {
     pub fn to_isabelle(&self) -> String {
         let template = "
 lemma ?name: assumes ?model shows \"?formula\"
-    apply(auto simp add: ?simps)
+    apply(simp add: ?simps)
     done
 ";
 

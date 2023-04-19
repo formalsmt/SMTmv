@@ -1,12 +1,11 @@
 use crate::error::Error;
 use crate::lemma::{Lemma, Theory};
-use fs_extra::dir::CopyOptions;
 use isabelle_client::client::args::{PurgeTheoryArgs, UseTheoriesArgs};
 use isabelle_client::client::{AsyncResult, IsabelleClient};
 use isabelle_client::process;
-use std::env::temp_dir;
+
 use std::os::unix::prelude::FileExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fs, io};
 
@@ -40,7 +39,7 @@ impl BatchChecker {
 
     /// Runs Isabelle in batch mode and loads the theory containing the lemma to check.
     /// Returns the result based on the output of Isabelle.
-    fn run_isabelle(&self, dir: &PathBuf, theory_root: &str) -> Result<CheckResult, Error> {
+    fn run_isabelle(&self, dir: &Path, theory_root: &str) -> Result<CheckResult, Error> {
         let mut options = process::OptionsBuilder::new();
         options
             .build_pide_reports(false)
@@ -48,7 +47,7 @@ impl BatchChecker {
             .process_output_limit(1)
             .process_output_tail(1)
             .record_proofs(0)
-            .parallel_proofs(2)
+            .parallel_proofs(0)
             .quick_and_dirty(true);
 
         let args = process::ProcessArgs {
@@ -61,7 +60,7 @@ impl BatchChecker {
         log::info!("Checking lemma with Isabelle");
         let output = match tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(process::batch_process(&args, Some(dir)))
+            .block_on(process::batch_process(&args, Some(&dir.to_owned())))
         {
             Ok(o) => o,
             Err(e) => {
@@ -99,15 +98,6 @@ impl LemmaChecker for BatchChecker {
         // TODO: Check if that is still needed with the heap image
         // Create temporary folder
         let dir = make_dir();
-        // Copy Isabelle theory files
-        let mut options = CopyOptions::new();
-        options.depth = 0;
-        options.content_only = true;
-        options.skip_exist = true;
-
-        if let Err(e) = fs_extra::dir::copy(&self.theory_root, &dir, &options) {
-            panic!("{}", e);
-        }
 
         // Create new theory file with lemma
         let mut theory = Theory::new("Validation", false);
@@ -117,7 +107,7 @@ impl LemmaChecker for BatchChecker {
 
         let th = theory.to_isabelle();
 
-        match fs::File::create(dir.join("Validation.thy")) {
+        match fs::File::create(dir.path().join("Validation.thy")) {
             Ok(th_file) => {
                 if let Err(e) = th_file.write_all_at(th.as_bytes(), 0) {
                     panic!("{}", e)
@@ -127,7 +117,7 @@ impl LemmaChecker for BatchChecker {
         }
 
         // Call isabelle
-        self.run_isabelle(&dir, &self.theory_root)
+        self.run_isabelle(dir.path(), &self.theory_root)
     }
 }
 
@@ -142,7 +132,7 @@ impl LemmaChecker for BatchChecker {
 ///
 /// Moreover, it currently does not check why a check failed.
 /// It only returns either CheckResult::OK or CheckResult::FailedUnknown, but never CheckResult::FailedInvalid.
-struct ClientChecker {
+pub struct ClientChecker {
     /// The client for the Isabelle server
     client: IsabelleClient,
     /// The root directory of the Isabelle SMT theories
@@ -274,10 +264,12 @@ impl LemmaChecker for ClientChecker {
     }
 }
 
-fn make_dir() -> PathBuf {
-    let temp_dir = temp_dir().join("isabelle_checker");
+fn make_dir() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap()
+    /*temp_dir().join("isabelle_checker");
+
     if let std::io::Result::Err(e) = fs::create_dir_all(&temp_dir) {
         panic!("{}", e)
     }
-    temp_dir
+    temp_dir*/
 }

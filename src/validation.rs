@@ -51,6 +51,7 @@ pub fn validate(
     log::debug!("{}", lemma.to_isabelle());
 
     let mut checker = checker::BatchChecker::new(theory_path.to_str().unwrap());
+    //let mut checker = checker::ClientChecker::start_server(theory_path.to_str().unwrap()).unwrap();
 
     match checker.check(&lemma)? {
         checker::CheckResult::OK => Ok(ValidationResult::Valid),
