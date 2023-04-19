@@ -75,7 +75,7 @@ impl Converter {
     pub fn new(spec_json: String) -> Result<Self, Error> {
         let spec: SpecDef = match serde_json::from_str(&spec_json) {
             Ok(s) => s,
-            Err(e) => return Err(Error::Other(format!("{}", e))),
+            Err(e) => return Err(Error::Other(format!("Could not load spec.json: {}", e))),
         };
         Ok(Self {
             vars_used: HashSet::new(),
@@ -96,6 +96,7 @@ impl Converter {
                 )))
             }
         };
+
         Converter::new(spec)
     }
 
@@ -116,13 +117,12 @@ impl Converter {
         let input = input
             .replace("str.to.re", "str.to_re")
             .replace("str.in.re", "str.in_re");
-
         let stream = CommandStream::new(input.as_bytes(), concrete::SyntaxBuilder, None);
         let commands = match stream.collect::<Result<Vec<_>, _>>() {
             Ok(c) => c,
             Err(e) => return Err(Error::ParseError(e)),
         };
-
+        log::trace!("Parsed formula");
         let mut converted = vec![];
         for c in &commands {
             if let Some(conv) = match c {
@@ -162,7 +162,7 @@ impl Converter {
     }
 
     fn convert_chr(&self, c: &char) -> String {
-        format!("chr {},", u32::from(c.clone()))
+        format!("chr {}", u32::from(c.clone()))
     }
 
     /// Convert a constant to an Isabelle/HOL term.
@@ -180,9 +180,9 @@ impl Converter {
                 for (i, c) in chars.iter().enumerate() {
                     if i == chars.len() - 1 {
                         as_char_list.push_str(&self.convert_chr(c));
-                        as_char_list.push(',');
                     } else {
                         as_char_list.push_str(&self.convert_chr(c));
+                        as_char_list.push(',');
                     }
                 }
                 assert!(!as_char_list.ends_with(','), "{}", as_char_list);
