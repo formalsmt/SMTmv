@@ -161,6 +161,10 @@ impl Converter {
         }
     }
 
+    fn convert_chr(&self, c: &char) -> String {
+        format!("chr {},", u32::from(c.clone()))
+    }
+
     /// Convert a constant to an Isabelle/HOL term.
     fn convert_constant(&self, c: &Constant) -> Result<String, Error> {
         match c {
@@ -173,9 +177,10 @@ impl Converter {
                 let mut as_char_list = String::from("[");
                 for (i, c) in s.chars().enumerate() {
                     if i < s.len() - 1 {
-                        as_char_list.push_str(&format!("{},", u32::from(c)));
+                        as_char_list.push_str(&self.convert_chr(&c));
+                        as_char_list.push(',');
                     } else {
-                        as_char_list.push_str(&format!("{}", u32::from(c)));
+                        as_char_list.push_str(&self.convert_chr(&c));
                     }
                 }
                 as_char_list.push(']');
