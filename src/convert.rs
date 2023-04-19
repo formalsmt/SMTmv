@@ -162,7 +162,7 @@ impl Converter {
     }
 
     fn convert_chr(&self, c: &char) -> String {
-        format!("chr {}", u32::from(c.clone()))
+        format!("(chr {})", u32::from(c.clone()))
     }
 
     /// Convert a constant to an Isabelle/HOL term.
