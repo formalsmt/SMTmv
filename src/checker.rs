@@ -244,7 +244,7 @@ impl LemmaChecker for ClientChecker {
                 if f.ok {
                     CheckResult::OK
                 } else {
-                    log::warn!("{}", theory.to_isabelle());
+                    log::warn!("Could not check proof: {}", theory.to_isabelle());
                     // TODO: Check why, return FailedInvalid if possible
                     CheckResult::FailedUnknown
                 }

@@ -68,7 +68,7 @@ fn main() {
         Ok(validation::ValidationResult::Invalid) => println!("invalid"),
         Ok(validation::ValidationResult::Unknown) => println!("unknown"),
         Err(error::Error::Unsupported(e)) => {
-            log::warn!("{}", e);
+            log::warn!("Unsupported: {}", e);
             print!("unknown")
         }
         Err(e) => {

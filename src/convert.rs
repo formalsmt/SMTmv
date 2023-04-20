@@ -17,7 +17,7 @@ use smt2parser::{
 use crate::error::Error;
 
 /// The specification to map an SMT-LIB function to Isabelle/HOL using the Isabelle SMT theories.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct Spec {
     mapsto: Option<String>,
     assoc: Option<String>,
@@ -43,7 +43,7 @@ impl Spec {
 }
 
 /// The specification to map SMT-LIB functions to Isabelle/HOL using the Isabelle SMT theories.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct SpecDef {
     version: String,
     #[serde(rename = "smt-lib-version")]
@@ -114,9 +114,12 @@ impl Converter {
     /// The results is a list of Isabelle/HOL terms that in conjunction are equivalent to the input formula.
     pub fn convert(&mut self, input: String) -> Result<Vec<String>, Error> {
         // Convert from smt 2.5 to smt 2.6
+
         let input = input
             .replace("str.to.re", "str.to_re")
-            .replace("str.in.re", "str.in_re");
+            .replace("str.in.re", "str.in_re")
+            .replace("str.to.int", "str.to_int")
+            .replace("str.from.int", "str.from_int");
         let stream = CommandStream::new(input.as_bytes(), concrete::SyntaxBuilder, None);
         let commands = match stream.collect::<Result<Vec<_>, _>>() {
             Ok(c) => c,
