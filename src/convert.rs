@@ -114,6 +114,7 @@ impl Converter {
     /// The results is a list of Isabelle/HOL terms that in conjunction are equivalent to the input formula.
     pub fn convert(&mut self, input: String) -> Result<Vec<String>, Error> {
         // Convert from smt 2.5 to smt 2.6
+
         let input = input
             .replace("str.to.re", "str.to_re")
             .replace("str.in.re", "str.in_re")
@@ -164,7 +165,7 @@ impl Converter {
     }
 
     fn convert_chr(&self, c: &char) -> String {
-        format!("(chr {})", u32::from(c.clone()))
+        format!("(chr {})", u32::from(*c))
     }
 
     /// Convert a constant to an Isabelle/HOL term.
@@ -370,19 +371,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn invalid_escape_sequence1() {
-        unicode_unescape("\\u{}", false);
+        _ = unicode_unescape("\\u{}", false);
     }
 
     #[test]
     #[should_panic]
     fn tooshort_escape_sequence() {
-        unicode_unescape("\\u12", false);
+        _ = unicode_unescape("\\u12", false);
     }
 
     #[test]
     #[should_panic]
     fn nonhex_escape_sequence() {
-        unicode_unescape("\\u{12g}", false);
+        _ = unicode_unescape("\\u{12g}", false);
     }
 
     #[test]
