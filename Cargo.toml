@@ -1,9 +1,13 @@
 [package]
-name = "SMTmv"
+name = "smtmv"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "Apache-2.0"
+description = "SMT model validation using Isabelle/HOL"
+homepage = "https://github.com/formalsmt/SMTmv"
+repository = "https://github.com/formalsmt/SMTmv"
+readme = "readme.md"
+keywords = ["Isabelle", "SMT", "Verification"]
 
 [dependencies]
 smt2parser = "0.6.1"

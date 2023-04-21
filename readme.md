@@ -26,12 +26,12 @@ isabelle build -o quick_and_dirty -v -b -d . smt
 ## Usage
 
 To build the program, navigate to the directory containing the Cargo.toml file and run `cargo build --release`.
-This create the binary `target/release/SMTmv`.
+This create the binary `target/release/smtmv`.
 
 Run the program with the following commands:
 
 ```text
-Usage: SMTmv -T <THROOT> <--stdin|--model <MODEL>> <SMT>
+Usage: smtmv -T <THROOT> <--stdin|--model <MODEL>> <SMT>
 
 Arguments:
   <SMT>  Path to file containing the SMT formula
@@ -49,7 +49,7 @@ Options:
 Here is an example to validate a model produce by Z3:
 
 ```shell
-z3 --model formula.smt  | SMTmv -T <isabelle_smt> --stdin formula.smt
+z3 --model formula.smt  | smtmv -T <isabelle_smt> --stdin formula.smt
 ```
 
 where `<isabelle_smt>` refers to the directory of the Isabelle formalization.
