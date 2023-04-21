@@ -165,7 +165,7 @@ impl Converter {
     }
 
     fn convert_chr(&self, c: &char) -> String {
-        format!("(chr {})", u32::from(c.clone()))
+        format!("(chr {})", u32::from(*c))
     }
 
     /// Convert a constant to an Isabelle/HOL term.
@@ -371,19 +371,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn invalid_escape_sequence1() {
-        unicode_unescape("\\u{}", false);
+        _ = unicode_unescape("\\u{}", false);
     }
 
     #[test]
     #[should_panic]
     fn tooshort_escape_sequence() {
-        unicode_unescape("\\u12", false);
+        _ = unicode_unescape("\\u12", false);
     }
 
     #[test]
     #[should_panic]
     fn nonhex_escape_sequence() {
-        unicode_unescape("\\u{12g}", false);
+        _ = unicode_unescape("\\u{12g}", false);
     }
 
     #[test]
