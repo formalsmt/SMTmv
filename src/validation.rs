@@ -25,6 +25,7 @@ pub fn validate(
 ) -> Result<ValidationResult, Error> {
     let smt_model = sanitize_model(&smt_model);
     let spec_path = theory_path.join("spec.json");
+    log::debug!("Loading spec from {}", spec_path.display());
     let mut converter = convert::Converter::from_spec_file(&spec_path)?;
 
     // Conjunction of assertions converted to Isabelle
