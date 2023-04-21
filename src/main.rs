@@ -30,7 +30,7 @@ struct Cli {
     stdin: bool,
 
     /// Path to the root of the theory directory
-    #[arg(short = 'T')]
+    #[arg(short = 'T', required = true)]
     throot: String,
 }
 

@@ -65,7 +65,9 @@ pub fn validate(
 /// If the models is not in valid SMT syntax, return None.
 fn sanitize_model(model: &str) -> String {
     let mut model = model.trim().to_owned();
-
+    if model.matches("sat").count() > 1 {
+        log::warn!("Multiple 'sat' in model, did you provide two models?");
+    }
     // Unwrap model from 'sat(...)'
     if model.starts_with("sat\n(") {
         model = model
