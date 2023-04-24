@@ -14,18 +14,18 @@ You can download and install Rust from the official [website](https://www.rust-l
 
 To install Isabelle, download the appropriate version for your operating system from the official [website](https://isabelle.in.tum.de/download.html).
 
-After installing Isabelle, you need to clone the [SMT formalization in Isabelle](https://github.com/lotzk/isabelle_smt) and build a heap image of it.
+After installing Isabelle, you need to clone the [SMT formalization in Isabelle](https://github.com/formalsmt/isabelle_smt) and build a heap image of it.
 Open a terminal and run the following commands:
 
 ```shell
-git clone https://github.com/lotzk/isabelle_smt
+git clone https://github.com/formalsmt/isabelle_smt
 cd isabelle_smt
-isabelle build -o quick_and_dirty -v -b -d . smt
+isabelle build -v -b -d . smt
 ```
 
 ## Usage
 
-To build the program, navigate to the directory containing the Cargo.toml file and run `cargo build --release`.
+To build the program, navigate to the directory containing the `Cargo.toml` file and run `cargo build --release`.
 This create the binary `target/release/smtmv`.
 
 Run the program with the following commands:
